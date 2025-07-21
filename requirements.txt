@@ -1,0 +1,14 @@
+langchain
+langchain-community
+langchain-openai
+python-dotenv
+pandas
+faker
+streamlit
+SQLAlchemy
+matplotlib
+seaborn
+
+# --- NOVOS DRIVERS DE BANCO DE DADOS ---
+psycopg2-binary   # Para PostgreSQL
+mysql-connector-python # Para MySQL/MariaDB

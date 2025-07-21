@@ -1,0 +1,21 @@
+# Ambiente virtual
+.venv/
+
+# IDEs
+.vscode/
+*.code-workspace
+
+# Arquivos Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Dados gerados
+data/vectorstore_index/
+data/memory.txt
+
+# Configuração local
+.env
+
+# Logs e históricos
+*.log
