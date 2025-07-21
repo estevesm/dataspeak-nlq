@@ -113,39 +113,61 @@ with st.sidebar:
                     st.error(f"Falha na conexão: {e}")
                     reset_connection() # Garante que o estado volte ao normal em caso de falha
 
-# --- Interface Principal do Chat (sem alterações) ---
+# --- Interface Principal do Chat ---
 if not st.session_state.connection_configured:
     st.info("👈 Por favor, configure e conecte-se a um banco de dados na barra lateral para começar.")
     st.stop()
 
+# Exibe as mensagens do histórico
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        
+        if "verbose_log" in message and message["verbose_log"]:
+            with st.expander("Ver detalhes da execução"):
+                st.code(message["verbose_log"], language="bash")
 
+# Entrada do usuário (Chat Input)
 if prompt := st.chat_input("Faça sua pergunta sobre o banco de dados..."):
+    # Adiciona a mensagem do usuário ao histórico e exibe
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Execução do agente e resposta
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         message_placeholder.markdown("🤔 Pensando...")
 
         try:
             history = []
-            for msg in st.session_state.messages:
+            # Não incluímos a última mensagem do usuário no histórico para o agente,
+            # pois ela já é o "input" principal.
+            for msg in st.session_state.messages[:-1]:
                 if msg["role"] == "user": history.append(("user", msg["content"]))
                 elif msg["role"] == "assistant": history.append(("ai", msg["content"]))
 
-            answer = run_agent_with_memory(
+            answer, verbose_log = run_agent_with_memory(
                 agent_executor=st.session_state.agent_executor,
                 question=prompt,
                 chat_history=history
             )
+            
+            # Exibe a resposta principal
             message_placeholder.markdown(answer)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+            
+            if verbose_log:
+                with st.expander("Ver detalhes da execução"):
+                    st.code(verbose_log, language="bash")
+            
+            # Salva tudo no histórico da sessão para que seja reexibido corretamente
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer,
+                "verbose_log": verbose_log # Salva o log na mensagem
+            })
 
         except Exception as e:
             error_message = f"Ocorreu um erro: {e}"
             message_placeholder.error(error_message)
-            st.session_state.messages.append({"role": "assistant", "content": error_message})
+            st.session_state.messages.append({"role": "assistant", "content": error_message, "verbose_log": ""})

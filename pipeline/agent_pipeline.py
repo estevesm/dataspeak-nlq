@@ -13,6 +13,10 @@ from langchain.agents.openai_tools.base import create_openai_tools_agent
 from strategies.llms.openai_llm import get_openai_llm
 from pipeline.tools.viz_tool import create_chart_from_data
 from utils.security import is_query_safe
+from utils.formatter import clean_ansi_codes
+
+import io
+from contextlib import redirect_stdout
 
 # --- Configuração ---
 langchain.llm_cache = SQLiteCache(database_path=".langchain.db")
@@ -90,7 +94,8 @@ def get_agent_executor(db_uri: str, openai_api_key: str):
 
 def run_agent_with_memory(agent_executor: AgentExecutor, question: str, chat_history: list[tuple]):
     """
-    Executa o agente que foi passado como argumento.
+    Executa o agente e captura a saída verbosa.
+    Retorna uma tupla: (resposta_final, log_verboso).
     """
     formatted_history = []
     for role, content in chat_history:
@@ -99,8 +104,28 @@ def run_agent_with_memory(agent_executor: AgentExecutor, question: str, chat_his
         elif role == "ai":
             formatted_history.append(AIMessage(content=content))
     
-    response = agent_executor.invoke({
-        "input": question,
-        "chat_history": formatted_history
-    })
-    return response.get("output", "Não consegui encontrar uma resposta.")
+    # Prepara um buffer de texto para capturar a saída
+    log_stream = io.StringIO()
+    
+    try:
+        # Usa um gerenciador de contexto para redirecionar stdout para o nosso buffer
+        with redirect_stdout(log_stream):
+            response = agent_executor.invoke({
+                "input": question,
+                "chat_history": formatted_history
+            })
+        
+        # Obtém o log capturado e a resposta final
+        verbose_log_raw  = log_stream.getvalue()
+        final_answer = response.get("output", "Não consegui encontrar uma resposta.")
+        
+        clean_log = clean_ansi_codes(verbose_log_raw)
+        
+        return final_answer, clean_log
+
+    except Exception as e:
+        # Mesmo em caso de erro, podemos retornar o que foi capturado até então
+        verbose_log_raw  = log_stream.getvalue()
+        clean_log = clean_ansi_codes(verbose_log_raw)
+        error_message = f"Ocorreu um erro ao executar o agente: {e}"
+        return error_message, clean_log
