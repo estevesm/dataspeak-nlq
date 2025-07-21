@@ -32,12 +32,12 @@ Instruções:
 6. IMPORTANTE: Você só tem permissão para executar queries de leitura (SELECT). Qualquer tentativa de modificar o banco de dados (DROP, DELETE, UPDATE, etc.) será bloqueada.
 """
 
-def get_agent_executor(db_uri: str):
+def get_agent_executor(db_uri: str, openai_api_key: str):
     """
     Cria e retorna um AgentExecutor configurado para a URI do banco de dados fornecida.
     Esta função é chamada pelo frontend sempre que uma nova conexão é estabelecida.
     """
-    llm = get_openai_llm()
+    llm = get_openai_llm(api_key=openai_api_key) 
     db = SQLDatabase.from_uri(db_uri)
     
     table_names = db.get_usable_table_names()

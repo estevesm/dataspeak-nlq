@@ -1,15 +1,37 @@
-from pathlib import Path
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
-# Carrega as variáveis do arquivo .env
+# Tenta importar o streamlit. Se não estiver disponível (ex: em um worker de backend), não tem problema.
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
+# Carrega as variáveis do .env para desenvolvimento local
 load_dotenv()
 
-# OpenAI API Key (necessária para usar as APIs)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+def get_config_value(key: str, default: any = None):
+    """
+    Busca um valor de configuração com a seguinte prioridade:
+    1. Segredos do Streamlit (para deploy)
+    2. Variáveis de ambiente / arquivo .env (para desenvolvimento local)
+    3. Valor padrão
+    """
+    value = default
+    # Tenta obter dos segredos do Streamlit primeiro
+    if st and hasattr(st, 'secrets') and key in st.secrets:
+        value = st.secrets[key]
+    else:
+        # Se não, tenta obter das variáveis de ambiente
+        value = os.getenv(key, default)
+    
+    return value
 
-# Modelo da OpenAI a ser usado (ex: gpt-3.5-turbo, gpt-4, etc.)
-OPENAI_LLM_MODEL = os.getenv("OPENAI_LLM_MODEL", "gpt-4o-mini-2024-07-18")
+def get_openai_model():
+    """Retorna o nome do modelo da OpenAI."""
+    return get_config_value("OPENAI_LLM_MODEL", "gpt-4o-mini")
 
-# Temperatura da OpenAI a ser usado (ex: 0.2, 0.5, etc.)
-OPENAI_TEMPERATURE = os.getenv("OPENAI_TEMPERATURE", "0.2")
+def get_openai_temperature():
+    """Retorna a temperatura do modelo da OpenAI."""
+    # Garante que o valor seja float
+    return float(get_config_value("OPENAI_TEMPERATURE", 0.1))

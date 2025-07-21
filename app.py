@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 from sqlalchemy.engine import URL
 from pipeline.agent_pipeline import get_agent_executor, run_agent_with_memory
@@ -44,6 +43,13 @@ initialize_session_state()
 
 # --- Formulário de Conexão na Sidebar ---
 with st.sidebar:
+    st.header("🗝️ Chave da API OpenAI")
+    openai_api_key = st.text_input(
+        "Insira sua chave da API da OpenAI aqui:",
+        type="password",
+        help="Sua chave não será armazenada. É necessária para cada sessão."
+    )
+        
     st.header("⚙️ Configuração do Banco de Dados")
 
     if st.session_state.connection_configured:
@@ -77,32 +83,35 @@ with st.sidebar:
             db_name = st.text_input("Nome do Banco de Dados")
 
         if st.button("🔗 Conectar"):
-            uri = None
-            try:
-                with st.spinner("Conectando e inicializando o agente..."):
-                    if st.session_state.db_type == "SQLite":
-                        uri = f"sqlite:///{db_path}"
-                    else:
-                        drivername = "postgresql+psycopg2" if st.session_state.db_type == "PostgreSQL" else "mysql+mysqlconnector"
-                        uri = URL.create(
-                            drivername=drivername, username=db_user, password=db_password,
-                            host=db_host, port=db_port, database=db_name
-                        ).render_as_string(hide_password=False)
-                    
-                    agent_executor, table_names = get_agent_executor(uri)
-                    
-                    # Atualiza o estado da sessão
-                    st.session_state.agent_executor = agent_executor
-                    st.session_state.table_names = table_names
-                    st.session_state.connection_configured = True
-                    st.session_state.messages = [
-                        {"role": "assistant", "content": f"Conectado com sucesso ao banco **{st.session_state.db_type}**! As tabelas `{', '.join(table_names)}` estão disponíveis. Como posso ajudar?"}
-                    ]
-                st.rerun()
+            if not openai_api_key:
+                st.error("Por favor, insira sua chave da API da OpenAI para continuar.")
+            else:            
+                uri = None
+                try:
+                    with st.spinner("Conectando e inicializando o agente..."):
+                        if st.session_state.db_type == "SQLite":
+                            uri = f"sqlite:///{db_path}"
+                        else:
+                            drivername = "postgresql+psycopg2" if st.session_state.db_type == "PostgreSQL" else "mysql+mysqlconnector"
+                            uri = URL.create(
+                                drivername=drivername, username=db_user, password=db_password,
+                                host=db_host, port=db_port, database=db_name
+                            ).render_as_string(hide_password=False)
+                        
+                        agent_executor, table_names = get_agent_executor(uri, openai_api_key)
+                        
+                        # Atualiza o estado da sessão
+                        st.session_state.agent_executor = agent_executor
+                        st.session_state.table_names = table_names
+                        st.session_state.connection_configured = True
+                        st.session_state.messages = [
+                            {"role": "assistant", "content": f"Conectado com sucesso ao banco **{st.session_state.db_type}**! As tabelas `{', '.join(table_names)}` estão disponíveis. Como posso ajudar?"}
+                        ]
+                    st.rerun()
 
-            except Exception as e:
-                st.error(f"Falha na conexão: {e}")
-                reset_connection() # Garante que o estado volte ao normal em caso de falha
+                except Exception as e:
+                    st.error(f"Falha na conexão: {e}")
+                    reset_connection() # Garante que o estado volte ao normal em caso de falha
 
 # --- Interface Principal do Chat (sem alterações) ---
 if not st.session_state.connection_configured:
