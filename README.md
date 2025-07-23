@@ -1,4 +1,3 @@
-```markdown
 # ✨ DataSpeak - Converse com seu Banco de Dados usando IA
 
 DataSpeak é uma plataforma de Business Intelligence (BI) conversacional que permite a qualquer usuário interagir com bancos de dados complexos usando apenas linguagem natural. Faça perguntas, peça por visualizações e forneça contexto de negócio para obter respostas precisas e insights rápidos, tudo através de uma interface de chat intuitiva.
@@ -123,4 +122,3 @@ Seu navegador abrirá automaticamente no endereço `http://localhost:8501`.
 ## 📄 Licença
 
 Este projeto está licenciado sob a Licença MIT.
-```
