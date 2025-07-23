@@ -6,7 +6,7 @@ Este projeto transforma a maneira como os dados são acessados, eliminando a nec
 
 ## 🚀 Demo
 
-*[INSERIR UM GIF/VÍDEO CURTO DA APLICAÇÃO AQUI: MOSTRANDO A CONEXÃO, UMA PERGUNTA, A RESPOSTA COM O EXPANDER E A MODAL DE CONTEXTO]*
+![Demo do Multimodal Assistant](assets/demo-dataspeak.gif) 
 
 **Exemplo de fluxo de trabalho:**
 1.  **Conecte-se:** Insira suas credenciais para qualquer banco de dados suportado (SQL Server, PostgreSQL, MySQL, SQLite).
@@ -118,7 +118,6 @@ Seu navegador abrirá automaticamente no endereço `http://localhost:8501`.
 ## 🗺️ Roadmap e Próximas Melhorias
 
 *   [ ] **Suporte a NoSQL:** Adicionar conectividade para bancos de dados como MongoDB.
-*   [ ] **Análise de Múltiplas Tabelas:** Melhorar a capacidade do agente de realizar `JOINs` complexos com base em perguntas que envolvem dados de diferentes tabelas.
 *   [ ] **Geração de Relatórios:** Um modo onde o agente executa um plano de múltiplas queries e gera um relatório completo em Markdown.
 *   [ ] **Cache de Queries:** Implementar um cache para os resultados de queries SQL, não apenas para as chamadas do LLM, para acelerar consultas repetidas aos dados.
 
