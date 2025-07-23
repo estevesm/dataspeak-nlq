@@ -109,7 +109,10 @@ Seu navegador abrirá automaticamente no endereço `http://localhost:8501`.
     ```
 
 ### Para Deploy em uma máquina virtual LINUX
-1. Siga estes passos: [Linux](linux-install.md) 
+1. Siga estes passos: [Linux](install-linux.md) 
+
+### Para Deploy em uma máquina virtual WINDOWS
+1. Siga estes passos: [Windows](install-windows.md) 
 
 
 ## 🗺️ Roadmap e Próximas Melhorias
