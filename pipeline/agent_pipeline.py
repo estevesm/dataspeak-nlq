@@ -16,9 +16,9 @@ from utils.security import is_query_safe
 from utils.formatter import clean_ansi_codes
 
 # --- Configuração ---
-langchain.llm_cache = SQLiteCache(database_path=".langchain.db")
+langchain.llm_cache = SQLiteCache(database_path="data/llm_cache.db")
 
-# --- Prompt do Agente ---
+# --- Prompts ---
 BASE_SYSTEM_MESSAGE = """
 Você é um agente especialista em análise de dados e SQL.
 Sua função é interagir com um banco de dados SQL para responder perguntas em linguagem natural.
@@ -33,36 +33,28 @@ Instruções:
 6. IMPORTANTE: Você só tem permissão para executar queries de leitura (SELECT). Qualquer tentativa de modificar o banco de dados (DROP, DELETE, UPDATE, etc.) será bloqueada.
 """
 
-def get_agent_executor(db_uri: str, openai_api_key: str, custom_metadata: str = ""):
-    """
-    Cria e retorna um AgentExecutor configurado para a URI do banco de dados fornecida.
-    """
-    # Corrigi o nome da importação para corresponder ao seu código.
-    llm = get_openai_llm(api_key=openai_api_key) 
-    db = SQLDatabase.from_uri(db_uri)
-    
-    # Usei get_usable_table_names para consistência com seu código.
-    table_names = db.get_usable_table_names() 
-    
-    # --- Montagem do Prompt Dinâmico ---
-    system_message_content = BASE_SYSTEM_MESSAGE
+TABLE_SELECTION_PROMPT = """
+Dada a pergunta do usuário e o histórico da conversa, identifique as tabelas do banco de dados estritamente necessárias para responder à pergunta.
 
-    if custom_metadata:
-        custom_data_dictionary = f"""
---- Dicionário de Dados Customizado Fornecido pelo Usuário ---
-O usuário forneceu o seguinte contexto sobre as tabelas e colunas.
-Use este dicionário para entender a semântica dos dados e gerar queries mais precisas:
+Histórico da Conversa:
+{chat_history}
 
-{custom_metadata}
--------------------------------------------------------------
+Pergunta do Usuário:
+{question}
+
+Tabelas Disponíveis:
+{table_list}
+
+Retorne apenas os nomes das tabelas relevantes, separados por vírgula. Se nenhuma tabela parecer relevante, não retorne nada.
+Exemplo: Customers, Orders, Products
 """
-        # A concatenação agora está DENTRO do bloco 'if'.
-        system_message_content += custom_data_dictionary  
-    
-    # --- Ferramentas e Guardrail ---
+
+def _create_sql_agent(llm, db, custom_metadata=""):
+    """Função interna para criar um agente SQL com um conjunto específico de tabelas."""
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     all_tools = toolkit.get_tools()
 
+    # Aplica o Guardrail de Segurança
     original_sql_tool = next((tool for tool in all_tools if tool.name == "sql_db_query"), None)
 
     def safe_sql_run_wrapper(query: str):
@@ -80,43 +72,96 @@ Use este dicionário para entender a semântica dos dados e gerar queries mais p
         if original_tool_index != -1:
             all_tools[original_tool_index] = safe_sql_query_tool
 
+    # Adiciona ferramentas customizadas
     custom_tools = [create_chart_from_data]
     final_tools = all_tools + custom_tools
 
-    # --- Prompt e Criação do Agente ---
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content=system_message_content),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ]
-    )
+    # Monta o prompt dinâmico
+    system_message_content = BASE_SYSTEM_MESSAGE
+    if custom_metadata:
+        custom_data_dictionary = f"""
+--- Dicionário de Dados Customizado Fornecido pelo Usuário ---
+O usuário forneceu o seguinte contexto sobre as tabelas e colunas.
+Use este dicionário para entender a semântica dos dados e gerar queries mais precisas:
+
+{custom_metadata}
+-------------------------------------------------------------
+"""
+        # A concatenação agora está DENTRO do bloco 'if'.
+        system_message_content += custom_data_dictionary  
+    
+    prompt = ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_message_content),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{input}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
+    ])
     
     agent_runnable = create_openai_tools_agent(llm, final_tools, prompt)
+    return AgentExecutor(agent=agent_runnable, tools=final_tools, verbose=True, handle_parsing_errors=True)
+
+def get_agent_executor(db_uri: str, openai_api_key: str, custom_metadata: str = ""):
+    """
+    Cria e retorna um AgentExecutor inicial.
+    NOTA: a criação real do agente acontecerá dinamicamente em cada chamada.
+    """
+    return {
+        "db_uri": db_uri,
+        "openai_api_key": openai_api_key,
+        "custom_metadata": custom_metadata
+    }
+
+def run_agent_with_memory(agent_config: dict, question: str, chat_history: list[tuple]):
+    """
+    Orquestra o fluxo de duas etapas: 1. Seleciona tabelas. 2. Executa o agente SQL.
+    """
+    db_uri = agent_config["db_uri"]
+    openai_api_key = agent_config["openai_api_key"]
+    custom_metadata = agent_config["custom_metadata"]
     
-    agent_executor = AgentExecutor(
-        agent=agent_runnable,
-        tools=final_tools,
-        verbose=True,
-        handle_parsing_errors=True
+    llm = get_openai_llm(api_key=openai_api_key)
+    
+    # --- ETAPA 1: SELEÇÃO DE TABELAS ---
+    db_for_schema = SQLDatabase.from_uri(db_uri)
+    all_table_names = db_for_schema.get_usable_table_names()
+    
+    history_str = "\n".join([f"{role}: {content}" for role, content in chat_history])
+    
+    selection_prompt = TABLE_SELECTION_PROMPT.format(
+        chat_history=history_str,
+        question=question,
+        table_list=all_table_names
     )
     
-    return agent_executor, table_names
-
-def run_agent_with_memory(agent_executor: AgentExecutor, question: str, chat_history: list[tuple]):
-    """
-    Executa o agente e captura a saída verbosa.
-    """
-    formatted_history = []
-    for role, content in chat_history:
-        if isinstance(content, str): # Adiciona verificação para segurança
-            if role == "user":
-                formatted_history.append(HumanMessage(content=content))
-            elif role == "ai":
-                formatted_history.append(AIMessage(content=content))
-    
+    # Captura o log da primeira chamada também
     log_stream = io.StringIO()
+    log_stream.write("> Etapa 1: Selecionando tabelas relevantes...\n")
+    
+    table_selection_response = llm.invoke(selection_prompt)
+    selected_tables_str = table_selection_response.content
+    
+    if not selected_tables_str.strip() or "nenhuma" in selected_tables_str.lower():
+         relevant_tables = all_table_names # Fallback: usa todas se nenhuma for selecionada
+         log_stream.write("> Nenhuma tabela específica selecionada, usando todas as tabelas (fallback).\n")
+    else:
+        relevant_tables = [table.strip() for table in selected_tables_str.split(',') if table.strip() in all_table_names]
+        log_stream.write(f"> Tabelas selecionadas: {relevant_tables}\n")
+    
+    log_stream.write("\n> Etapa 2: Executando o agente SQL principal...\n\n")
+
+    # --- ETAPA 2: EXECUÇÃO DO AGENTE SQL PRINCIPAL ---
+    # Cria o objeto de DB APENAS com as tabelas relevantes
+    db_for_agent = SQLDatabase.from_uri(
+        db_uri,
+        include_tables=relevant_tables,
+        sample_rows_in_table_info=2
+    )
+    
+    # Cria o agente SQL "descartável" para esta chamada
+    agent_executor = _create_sql_agent(llm, db_for_agent, custom_metadata)
+    
+    # Formata o histórico para o agente principal
+    formatted_history = [HumanMessage(content=content) if role == "user" else AIMessage(content=content) for role, content in chat_history if isinstance(content, str)]
     
     try:
         with redirect_stdout(log_stream):

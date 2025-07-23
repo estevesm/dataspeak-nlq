@@ -9,21 +9,23 @@ Este projeto transforma a maneira como os dados são acessados, eliminando a nec
 ![Demo do Multimodal Assistant](assets/demo-dataspeak.gif) 
 
 **Exemplo de fluxo de trabalho:**
-1.  **Conecte-se:** Insira suas credenciais para qualquer banco de dados suportado (SQL Server, PostgreSQL, MySQL, SQLite).
-2.  **Pergunte:** "Qual foi nosso faturamento total no último trimestre, dividido por categoria de produto?"
-3.  **Adicione Contexto:** Se o agente não entender um nome de tabela como `tbl_fat_05`, abra o editor de contexto e adicione: "`tbl_fat_05` representa a tabela de faturamento de maio."
-4.  **Visualize:** "Ótimo. Agora me mostre isso em um gráfico de barras."
+1.  **Conecte-se:** Insira suas credenciais para qualquer banco de dados suportado (SQL Server, PostgreSQL, etc.).
+2.  **Pergunte:** "Qual o faturamento total no último trimestre, dividido por categoria de produto?"
+3.  **Salve a Métrica:** Clique no ícone 🔖 ao lado da sua pergunta, dê o nome "Faturamento Trimestral por Categoria" e salve.
+4.  **Visualize no Dashboard:** Navegue para a aba "Dashboard" e veja seu novo card. Clique em "Atualizar" para obter os dados mais recentes a qualquer momento.
+5.  **Adicione Contexto:** Se o agente não entender um nome de tabela como `tbl_fat_05`, abra a modal "Editar Contexto" e adicione: "`tbl_fat_05` representa a tabela de faturamento de maio."
 
 ## ✨ Funcionalidades Principais
 
-*   **Conectividade Multi-DB (BYOD):** Traga seu próprio banco de dados! Suporte nativo para **SQL Server, PostgreSQL, MySQL e SQLite**.
-*   **Tradução Inteligente de NL para SQL:** Utiliza modelos de linguagem avançados (GPT-4o) para converter perguntas em português em queries SQL complexas.
-*   **Contexto de Negócio Customizável:** Uma interface modal permite que o usuário forneça um "dicionário de dados" para que a IA entenda nomenclaturas específicas da empresa (ex: `cli_id` = "ID do Cliente"), aumentando drasticamente a precisão.
-*   **Geração Dinâmica de Gráficos:** Crie visualizações de dados (`barras`, `pizza`) diretamente a partir de suas perguntas.
-*   **Memória Conversacional:** Mantenha diálogos fluidos. O agente se lembra do contexto de perguntas anteriores.
+*   **Interface Unificada com Abas:** Uma experiência de usuário limpa e moderna com seções de "Chat" e "Dashboard" organizadas em abas (`st.tabs`).
+*   **Conectividade Multi-DB (BYOD):** Suporte nativo para **SQL Server, PostgreSQL, MySQL e SQLite**, permitindo que os usuários conectem suas próprias bases de dados.
+*   **Dashboard Dinâmico de Métricas:** Salve perguntas frequentes como "Métricas Chave" (KPIs) que aparecem como cards em um dashboard. Atualize os dados com um único clique.
+*   **Contexto de Negócio Customizável:** Uma interface modal (`st.dialog`) permite que o usuário forneça um "dicionário de dados" para que a IA entenda nomenclaturas específicas da empresa, aumentando drasticamente a precisão.
+*   **Agente Inteligente de Duas Etapas (Roteador de Tabelas):** Resolve o problema de "contexto muito longo" ao primeiro identificar as tabelas relevantes para a pergunta, garantindo eficiência e escalabilidade com bancos de dados grandes.
+*   **Renderização de Cards Adaptativa:** O dashboard exibe os resultados de forma inteligente, renderizando números como métricas (`st.metric`), dados tabulares com `st.dataframe` e gráficos.
+*   **Geração Dinâmica de Gráficos:** Crie visualizações de dados (`barras`, `pizza`) diretamente a partir de suas perguntas no chat ou no dashboard.
 *   **Guardrail de Segurança:** Previne a execução de queries perigosas (`DROP`, `DELETE`, `UPDATE`), garantindo a integridade dos dados.
-*   **Transparência e Depuração:** Cada resposta inclui um log de execução expansível, mostrando exatamente qual query SQL o agente executou.
-*   **Interface Web Moderna:** Construída com Streamlit, oferecendo uma experiência de usuário limpa, interativa e responsiva.
+*   **Transparência Total:** Cada resposta no chat inclui um log de execução expansível, mostrando exatamente qual query SQL o agente executou.
 
 ## 🛠️ Tecnologias Utilizadas
 
@@ -34,6 +36,7 @@ Este projeto transforma a maneira como os dados são acessados, eliminando a nec
 *   **Bancos de Dados Suportados:** 🗃️ SQL Server, PostgreSQL, MySQL, SQLite
 *   **Drivers de Conexão:** SQLAlchemy, psycopg2, mysql-connector-python, pyodbc
 *   **Visualização de Dados:** Matplotlib & Seaborn
+*   **Armazenamento de Métricas:** JSON
 
 ## 📂 Estrutura do Projeto
 
@@ -41,22 +44,26 @@ O projeto segue uma arquitetura modular e escalável:
 
 ```
 dataspeak-nlq/
-├── app.py                 # Lógica principal da interface com Streamlit
-├── requirements.txt       # Dependências do projeto
-├── .env                   # Arquivo para chaves de API (desenvolvimento local)
+├── app.py # Aplicação principal com Streamlit (UI e orquestração)
+├── requirements.txt # Dependências do projeto
+├── .env # Arquivo para configurações (desenvolvimento local)
 │
 ├── pipeline/
-│   ├── agent_pipeline.py  # Fábrica de agentes, lógica de prompt e execução
-│   └── tools/
-│       └── viz_tool.py    # Ferramenta customizada para gerar gráficos
+│ ├── agent_pipeline.py # Lógica de criação e execução do agente de duas etapas
+│ └── tools/
+│ └── viz_tool.py # Ferramenta customizada para gerar gráficos
 │
 ├── strategies/
-│   └── llms/
-│       └── openai_llm.py  # Configuração e inicialização do LLM
+│ └── llms/
+│ └── openai_llm.py # Configuração e inicialização do LLM
+│
+├── data/
+│ └── saved_questions.json # Armazena as métricas do dashboard
 │
 └── utils/
-    ├── formatter.py       # Limpeza de logs (remove códigos ANSI)
-    └── security.py        # Módulo do Guardrail de segurança para queries SQL
+├── formatter.py # Limpeza de logs (remove códigos ANSI)
+├── security.py # Módulo do Guardrail de segurança
+└── storage.py # Funções para ler e escrever as métricas salvas
 ```
 
 ## ⚙️ Instalação e Configuração
@@ -109,17 +116,18 @@ Seu navegador abrirá automaticamente no endereço `http://localhost:8501`.
     ```
 
 ### Para Deploy em uma máquina virtual LINUX
-1. Siga estes passos: [Linux](install-linux.md) 
+1. Siga estes passos: [Linux](assets/install-linux.md) 
 
 ### Para Deploy em uma máquina virtual WINDOWS
-1. Siga estes passos: [Windows](install-windows.md) 
+1. Siga estes passos: [Windows](assets/install-windows.md) 
 
 
 ## 🗺️ Roadmap e Próximas Melhorias
 
 *   [ ] **Suporte a NoSQL:** Adicionar conectividade para bancos de dados como MongoDB.
-*   [ ] **Geração de Relatórios:** Um modo onde o agente executa um plano de múltiplas queries e gera um relatório completo em Markdown.
-*   [ ] **Cache de Queries:** Implementar um cache para os resultados de queries SQL, não apenas para as chamadas do LLM, para acelerar consultas repetidas aos dados.
+*   [ ] **Cache de Resultados do Dashboard:** Implementar um cache mais robusto (ex: st.cache_data) para os resultados do dashboard, evitando recálculos desnecessários.
+*   [ ] **Geração de Relatórios Agendados:** Permitir que o usuário agende a atualização de um dashboard e receba o resultado por e-mail.
+*   [ ] **Autenticação de Usuários:** Adicionar um sistema de login para que diferentes usuários tenham seus próprios dashboards salvos.
 
 ## 📄 Licença
 

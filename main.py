@@ -4,7 +4,7 @@ import pandas as pd
 def main():
 
     print("🤖 SQL Agent com Linguagem Natural")
-    print("Conectado ao banco 'database.db'. Faça sua pergunta ou digite 'sair'.")
+    print("Conectado ao banco 'example.db'. Faça sua pergunta ou digite 'sair'.")
     print("-" * 30)
 
     while True:

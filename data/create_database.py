@@ -7,7 +7,7 @@ from faker import Faker
 fake = Faker('pt_BR')
 
 # Conecta ao banco de dados (ou cria se não existir)
-conn = sqlite3.connect('data/database.db')
+conn = sqlite3.connect('data/example.db')
 cursor = conn.cursor()
 
 # --- Criação das Tabelas ---
@@ -110,4 +110,4 @@ for i in range(50):
 conn.commit()
 conn.close()
 
-print("Banco de dados 'database.db' criado e populado com sucesso!")
+print("Banco de dados 'example.db' criado e populado com sucesso!")
