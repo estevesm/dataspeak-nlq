@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List
 from cryptography.fernet import Fernet, InvalidToken
 from config import get_config_value
 
@@ -14,38 +14,52 @@ if not encryption_key_str:
 ENCRYPTION_KEY = encryption_key_str.encode()
 cipher_suite = Fernet(ENCRYPTION_KEY)
 
-# --- Gerenciamento do Arquivo de Armazenamento ---
+# --- Funções de Armazenamento Genéricas ---
 STORAGE_FILE = "data/storage.json"
-
 def _load_storage() -> Dict[str, Any]:
-    """Função interna para carregar todo o conteúdo do arquivo de armazenamento."""
     try:
         with open(STORAGE_FILE, 'r') as f:
             content = f.read()
-            if not content: return {"saved_questions": {}, "api_key_storage": {}}
+            if not content: return {"dashboards": {}, "api_key_storage": {}}
             return json.loads(content)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"saved_questions": {}, "api_key_storage": {}}
+        return {"dashboards": {}, "api_key_storage": {}}
 
 def _save_storage(data: Dict[str, Any]):
-    """Função interna para salvar todo o conteúdo no arquivo de armazenamento."""
     with open(STORAGE_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-# --- Funções para o Dashboard (sem alteração) ---
-def load_saved_questions() -> Dict[str, Any]:
-    return _load_storage().get("saved_questions", {})
+# --- NOVAS Funções para Gerenciamento de Dashboards ---
+def load_dashboards() -> Dict[str, Any]:
+    """Carrega a estrutura completa de dashboards."""
+    return _load_storage().get("dashboards", {})
 
-def save_question(metric_name: str, question: str):
+def get_dashboard_names() -> List[str]:
+    """Retorna uma lista com os nomes de todos os dashboards salvos."""
+    return list(load_dashboards().keys())
+
+def save_metric_to_dashboard(dashboard_name: str, metric_name: str, question: str):
+    """Salva ou atualiza uma métrica dentro de um dashboard específico."""
     storage = _load_storage()
-    if "saved_questions" not in storage: storage["saved_questions"] = {}
-    storage["saved_questions"][metric_name] = {"question": question}
+    if "dashboards" not in storage:
+        storage["dashboards"] = {}
+    if dashboard_name not in storage["dashboards"]:
+        storage["dashboards"][dashboard_name] = {}
+    storage["dashboards"][dashboard_name][metric_name] = {"question": question}
     _save_storage(storage)
 
-def delete_question(metric_name: str):
+def delete_metric_from_dashboard(dashboard_name: str, metric_name: str):
+    """Deleta uma métrica de um dashboard específico."""
     storage = _load_storage()
-    if "saved_questions" in storage and metric_name in storage["saved_questions"]:
-        del storage["saved_questions"][metric_name]
+    if dashboard_name in storage.get("dashboards", {}) and metric_name in storage["dashboards"][dashboard_name]:
+        del storage["dashboards"][dashboard_name][metric_name]
+        _save_storage(storage)
+
+def delete_dashboard(dashboard_name: str):
+    """Deleta um dashboard inteiro."""
+    storage = _load_storage()
+    if dashboard_name in storage.get("dashboards", {}):
+        del storage["dashboards"][dashboard_name]
         _save_storage(storage)
 
 # --- Funções Seguras para Gerenciamento da Chave da API ---

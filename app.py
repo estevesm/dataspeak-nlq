@@ -3,11 +3,11 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy.engine import URL
 from langchain_community.utilities import SQLDatabase
-from utils.storage import load_saved_questions, save_question, delete_question
 from pipeline.agent_pipeline import generate_sql_query
 from utils.db_executor import execute_sql_query
 from config import OPENAI_MODELS
 from utils.storage import load_api_key, save_api_key, delete_api_key
+from utils.storage import  load_dashboards, get_dashboard_names, save_metric_to_dashboard, delete_dashboard, delete_metric_from_dashboard
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="DataSpeak", page_icon="🤖", layout="wide")
@@ -63,16 +63,39 @@ def context_editor_dialog():
 
 @st.dialog("Salvar Pergunta como Métrica")
 def save_question_dialog(question_to_save: str):
-    st.write("Dê um nome para esta métrica para encontrá-la facilmente no seu dashboard.")
-    metric_name = st.text_input("Nome da Métrica", placeholder="Ex: Vendas Mensais")
+    st.write("Dê um nome para esta métrica e escolha ou crie um dashboard para salvá-la.")
+    
+    metric_name = st.text_input("**1. Nome da Métrica**", placeholder="Ex: Vendas Mensais")
     st.text_area("Pergunta", value=question_to_save, disabled=True)
+    
+    st.divider()
+    
+    st.write("**2. Escolha o Dashboard**")
+    
+    dashboard_names = get_dashboard_names()
+    create_new_option = "+ Criar Novo Dashboard"
+    
+    # Seletor para escolher um dashboard existente ou criar um novo
+    selected_dashboard = st.selectbox(
+        "Salvar em um dashboard existente",
+        options=[create_new_option] + dashboard_names
+    )
+    
+    new_dashboard_name = ""
+    if selected_dashboard == create_new_option:
+        new_dashboard_name = st.text_input("Nome do Novo Dashboard")
+
+    final_dashboard_name = new_dashboard_name if selected_dashboard == create_new_option else selected_dashboard
+
     if st.button("Salvar Métrica"):
-        if metric_name:
-            save_question(metric_name, question_to_save)
-            st.toast(f"Métrica '{metric_name}' salva!", icon="🔖")
-            st.rerun()
-        else:
+        if not metric_name:
             st.error("Por favor, dê um nome para a métrica.")
+        elif not final_dashboard_name:
+            st.error("Por favor, escolha ou crie um nome para o dashboard.")
+        else:
+            save_metric_to_dashboard(final_dashboard_name, metric_name, question_to_save)
+            st.toast(f"Métrica '{metric_name}' salva no dashboard '{final_dashboard_name}'!", icon="🔖")
+            st.rerun()
             
 # --- Função de Renderização de Resultados ---
 def render_metric_result(result_df: pd.DataFrame):
@@ -156,7 +179,7 @@ with st.sidebar:
 
         st.divider()
         
-        st.header("🧠 Contexto de Negócio")
+        st.header("🪄 Contexto de Negócio")
         if st.button("Editar Contexto / Dicionário de Dados"):
             context_editor_dialog()
             
@@ -336,37 +359,119 @@ with tab_chat:
         # Um único rerun no final para redesenhar a tela com a nova resposta.
         st.rerun()
 
-# --- Aba de Dashboard ---
+# --- Aba de Dashboard ---            
 with tab_dashboard:
-    saved_questions = load_saved_questions()
-    if not saved_questions:
-        st.info("Você ainda não salvou nenhuma métrica. Volte ao chat e clique no ícone 🔖 para salvar.")
-    else:
-        if st.button("🔄 Atualizar Tudo"):
-            st.session_state.dashboard_results = {}; st.rerun()
+    # Carrega a estrutura completa de todos os dashboards
+    all_dashboards = load_dashboards()
+    dashboard_names = list(all_dashboards.keys())
+
+    if not dashboard_names:
+        st.info("Você ainda não salvou nenhuma métrica. Volte ao chat e clique no ícone 🔖 para criar seu primeiro dashboard!")
+        st.stop()
+
+    # 1. Adicionamos um título manual para a seção
+    st.markdown("###### Selecione um Dashboard")
+
+    # 2. Injetamos CSS para alinhar verticalmente os itens nas colunas
+    st.markdown("""
+        <style>
+            /* Alvo específico para os contêineres de coluna dentro do app */
+            div[data-testid="column"] {
+                display: flex;
+                align-items: flex-end; /* Alinha os itens na parte inferior */
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --- Seletor de Dashboard e Controles ---
+    col1, col2, col3, col4 = st.columns([0.3, 0.1, 0.1, 0.5])
+    
+    with col1:
+        selected_dashboard_name = st.selectbox(
+            "Selecione um Dashboard para visualizar",
+            options=dashboard_names,
+            key="selected_dashboard",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        if st.button("🔄 Atualizar"):
+            if selected_dashboard_name:
+                current_metrics = list(all_dashboards.get(selected_dashboard_name, {}).keys())
+                for metric in current_metrics:
+                    if metric in st.session_state.dashboard_results:
+                        del st.session_state.dashboard_results[metric]
+                st.rerun()
+            
+    with col3:
+        if st.button("🗑️ Deletar", type="primary"):
+            st.session_state.confirm_delete = True
+            st.rerun() # Adiciona um rerun para mostrar a confirmação imediatamente
+
+    # Lógica de confirmação para deleção
+    if st.session_state.get("confirm_delete", False):
+        st.warning(f"**Você tem certeza que quer deletar o dashboard '{selected_dashboard_name}'?** Esta ação não pode ser desfeita.")
+        col_d1, col_d2 = st.columns(2)
+        if col_d1.button("Sim, deletar permanentemente"):
+            delete_dashboard(selected_dashboard_name)
+            st.session_state.confirm_delete = False
+            st.toast(f"Dashboard '{selected_dashboard_name}' deletado.")
+            time.sleep(1)
+            st.rerun()
+        if col_d2.button("Não, cancelar"):
+            st.session_state.confirm_delete = False
+            st.rerun()
+
+    #st.divider()
+    st.markdown(
+        """
+        <style>
+        .custom-divider {
+            border-top: 2px solid #FF4B4B;  /* Cor e espessura da linha */
+            margin: 5px 0;  /* Margem acima e abaixo */
+        }
+        </style>
+        <div class="custom-divider"></div>
+        """,
+        unsafe_allow_html=True
+    )
+    # --- Renderização dos Cards do Dashboard Selecionado ---
+    if selected_dashboard_name and selected_dashboard_name in all_dashboards:
+        st.subheader(f"Métricas de: {selected_dashboard_name}")
         
-        cols = st.columns(3); col_idx = 0
-        for metric_name, data in saved_questions.items():
+        # Obtém as métricas do dashboard selecionado
+        selected_dashboard_metrics = all_dashboards[selected_dashboard_name]
+        
+        if not selected_dashboard_metrics:
+            st.info("Este dashboard está vazio. Salve algumas métricas nele a partir da aba de Chat!")
+        
+        # Layout em colunas para os cards
+        cols = st.columns(3)
+        col_idx = 0
+        for metric_name, data in selected_dashboard_metrics.items():
+            question = data.get("question", "Pergunta não encontrada.")
             with cols[col_idx % len(cols)]:
                 with st.container(border=True):
                     st.subheader(metric_name)
-                    st.caption(f"Pergunta: *{data['question']}*")
+                    st.caption(f"Pergunta: *{question}*")
                     result_placeholder = st.empty()
                     
+                    # Lógica de Execução e Exibição
                     if metric_name not in st.session_state.dashboard_results:
                         with result_placeholder, st.spinner("Executando..."):
                             try:
                                 sql_result = generate_sql_query(
-                                    db_uri=st.session_state.db_uri, 
+                                    db_uri=st.session_state.db_uri,
                                     openai_api_key=st.session_state.openai_api_key,
-                                    model_name=st.session_state.selected_model, 
-                                    question=data["question"]
+                                    model_name=st.session_state.get("selected_model", "gpt-4o-mini"),
+                                    question=question
                                 )
                                 result_df = execute_sql_query(st.session_state.db_uri, sql_result.query)
                                 st.session_state.dashboard_results[metric_name] = result_df
                                 st.rerun()
                             except Exception as e:
                                 st.session_state.dashboard_results[metric_name] = pd.DataFrame([{"erro": str(e)}])
+                                st.rerun()
                     
                     if metric_name in st.session_state.dashboard_results:
                         result_df = st.session_state.dashboard_results[metric_name]
@@ -379,10 +484,14 @@ with tab_dashboard:
                     st.markdown("---")
                     col_b1, col_b2 = st.columns([0.7, 0.3])
                     if col_b1.button("Recalcular", key=f"run_{metric_name}"):
-                        if metric_name in st.session_state.dashboard_results: del st.session_state.dashboard_results[metric_name]
+                        if metric_name in st.session_state.dashboard_results:
+                            del st.session_state.dashboard_results[metric_name]
                         st.rerun()
                     if col_b2.button("🗑️", key=f"del_{metric_name}", help="Deletar métrica"):
-                        delete_question(metric_name)
-                        if metric_name in st.session_state.dashboard_results: del st.session_state.dashboard_results[metric_name]
-                        st.toast(f"Métrica '{metric_name}' deletada."); time.sleep(1); st.rerun()
+                        delete_metric_from_dashboard(selected_dashboard_name, metric_name)
+                        if metric_name in st.session_state.dashboard_results:
+                            del st.session_state.dashboard_results[metric_name]
+                        st.toast(f"Métrica '{metric_name}' deletada.")
+                        time.sleep(1)
+                        st.rerun()
             col_idx += 1

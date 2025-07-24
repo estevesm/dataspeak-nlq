@@ -1,11 +1,18 @@
 {
     "api_key_storage": {
-        "encrypted_key": "gAAAAABogoYiA03xKVRsgUoMBFPgHHg2Oif032e-4v-nu0f9dOT_NOpwZBYq4j2cfS947UTs1RkC9yFAibJoBcm8wxLx407b0UQplR39BHPyh5HWSuwKwE9Y7t56EDGwJ99EW4kGfAMRj174xvx5PPmIEAtMAZRmnaCca5rZojh0NvRMCdTkULR8vIg7l_Ji_BPcP1o2yqDcXRytpfEBLHjnwQSY7j1vZ2D8EFiHmZ0jL5yP5OZs69qos818XorCaoBLs94kSg44a8nYXX6Ex2n3VPESsHCfsyRyTFBoQf9R022UYsI2VzY=",
-        "expires": 1753470882
+        "encrypted_key": "gAAAAABogqAG-FapgnXpLH-8balCSpW1tPOL99pvNW1ay3-IbBpAtykeM8LEuyGqSBKp6OopTHCLQDqGDlZehL2IwYzjh7E-gQ9OGEYiSt1c9Qmp4rS_uV7lBadPX7ER1SzVVTtWlCLpAfYUau-G3hVfwpOoE49RzYf6gxJfhaThc2yVob0EXuc-PHO1PVybsihd2o2_fsghDxBkRJK7JnipX2HkTNywpGQxuGr7DCSCA9vrbwIhoOqjI1fzDqwpRn5G5tIYRay4PT5zdedom5wWgMMxs6BudMWyFixleyoc6v1wkAm3_Ac=",
+        "expires": 1753477510
     },
-    "saved_questions": {
-        "Clientes": {
-            "question": "liste os clientes cadastrados"
+    "dashboards": {
+        "BAT": {
+            "Clientes": {
+                "question": "oi"
+            }
+        },
+        "KABA": {
+            "Produto": {
+                "question": "qual o produto mais caro?"
+            }
         }
     }
 }
