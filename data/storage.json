@@ -1,0 +1,11 @@
+{
+    "api_key_storage": {
+        "encrypted_key": "gAAAAABogoYiA03xKVRsgUoMBFPgHHg2Oif032e-4v-nu0f9dOT_NOpwZBYq4j2cfS947UTs1RkC9yFAibJoBcm8wxLx407b0UQplR39BHPyh5HWSuwKwE9Y7t56EDGwJ99EW4kGfAMRj174xvx5PPmIEAtMAZRmnaCca5rZojh0NvRMCdTkULR8vIg7l_Ji_BPcP1o2yqDcXRytpfEBLHjnwQSY7j1vZ2D8EFiHmZ0jL5yP5OZs69qos818XorCaoBLs94kSg44a8nYXX6Ex2n3VPESsHCfsyRyTFBoQf9R022UYsI2VzY=",
+        "expires": 1753470882
+    },
+    "saved_questions": {
+        "Clientes": {
+            "question": "liste os clientes cadastrados"
+        }
+    }
+}

@@ -5,6 +5,14 @@ from dotenv import load_dotenv
 # Isso não afeta o ambiente de deploy, que não terá um .env.
 load_dotenv()
 
+# Modelos OpenAI Disponíveis
+OPENAI_MODELS = [
+    "gpt-4.1-nano-2025-04-14",
+    "gpt-4o-mini-2024-07-18",
+    "gpt-4.1-mini-2025-04-14",
+]
+
+
 # Tenta importar o streamlit. Se não estiver disponível, define como None.
 try:
     import streamlit as st
@@ -33,10 +41,6 @@ def get_config_value(key: str, default: any = None):
         value = default
         
     return value
-
-def get_openai_model():
-    """Retorna o nome do modelo da OpenAI."""
-    return get_config_value("OPENAI_LLM_MODEL", "gpt-4o-mini-2024-07-18")
 
 def get_openai_temperature():
     """Retorna a temperatura do modelo da OpenAI."""

@@ -1,56 +1,41 @@
 import time
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from sqlalchemy.engine import URL
 from langchain_community.utilities import SQLDatabase
-from pipeline.agent_pipeline import get_agent_executor, run_agent_with_memory
 from utils.storage import load_saved_questions, save_question, delete_question
+from pipeline.agent_pipeline import generate_sql_query
+from utils.db_executor import execute_sql_query
+from config import OPENAI_MODELS
+from utils.storage import load_api_key, save_api_key, delete_api_key
 
 # --- Configuração da Página ---
-st.set_page_config(
-    page_title="DataSpeak",
-    page_icon="🤖",
-    layout="wide"
-)
-
-st.image(
-    "https://livingnet.com.br/wp-content/uploads/2022/09/WhatsApp-Image-2022-06-29-at-20.20-1.png",
-    width=200
-)
-
+st.set_page_config(page_title="DataSpeak", page_icon="🤖", layout="wide")
+st.image("assets/logo-living.png", width=200)
 st.markdown("<h1 style='font-size: 32px;'>✨ DataSpeak - Converse com seu banco de dados usando IA</h1>", unsafe_allow_html=True)
 
 # --- Lógica de Estado da Sessão ---
 def initialize_session_state():
-    """Define os valores padrão para o estado da sessão."""
     defaults = {
-        "db_type": "SQLite",
-        "agent_executor": None,
-        "table_names": [],
-        "messages": [],
-        "connection_configured": False,
-        "db_uri": "",
-        "openai_api_key": "",
-        "custom_metadata": "",
-        "dashboard_results": {},
-        "show_context_dialog": False
+        "db_type": "SQLite", "table_names": [], "messages": [], "connection_configured": False,
+        "db_uri": "", "custom_metadata": "", "dashboard_results": {}
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+            
+    # Carrega a chave da API do armazenamento UMA ÚNICA VEZ
+    if "openai_api_key" not in st.session_state:
+        st.session_state.openai_api_key = load_api_key()            
 
 def reset_connection():
-    """Reseta o estado da conexão e limpa o chat."""
-    st.session_state.connection_configured = False
-    st.session_state.agent_executor = None
-    st.session_state.table_names = []
-    st.session_state.messages = []
-    
-# Inicializa o estado uma vez no início da sessão.
+    api_key = st.session_state.get("openai_api_key", "")
+    initialize_session_state()
+    st.session_state.openai_api_key = api_key
+
 initialize_session_state()
 
-# --- Dicionário de Configurações Unificado ---
+# --- Dicionário de Configurações ---
 DB_CONFIGS = {
     "SQLite": {"driver": "sqlite"},
     "PostgreSQL": {"port": "5432", "user": "postgres", "driver": "postgresql+psycopg2"},
@@ -58,40 +43,24 @@ DB_CONFIGS = {
     "SQL Server": {"port": "1433", "user": "sa", "driver": "mssql+pyodbc"}
 }
 
-# --- Modal para Salvar Contexto Prompt---
-@st.dialog("Editar Contexto de Negócio", width="large" )
+# --- Modais ---
+@st.dialog("Editar Contexto de Negócio", width="large")
 def context_editor_dialog():
-    """Esta função renderiza o conteúdo da modal."""
     st.info("Descreva suas tabelas e colunas para ajudar a IA a entender a semântica dos seus dados.")
-    
     new_metadata = st.text_area(
         "Ex: 'tbl_vendas armazena as vendas. col_dt_venda é a data da transação.'",
-        value=st.session_state.custom_metadata,
-        height=250,
-        key="metadata_input"
+        value=st.session_state.custom_metadata, height=250, key="metadata_input"
     )
-    
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Salvar Contexto e Atualizar Agente"):
-            with st.spinner("Reconfigurando o agente com o novo contexto..."):
-                st.session_state.custom_metadata = new_metadata
-
-                agent_config = get_agent_executor(
-                    db_uri=st.session_state.db_uri,
-                    openai_api_key=st.session_state.openai_api_key,
-                    custom_metadata=st.session_state.custom_metadata
-                )
-
-                st.session_state.agent_config = agent_config
-                st.toast("Agente atualizado com sucesso!", icon="🧠")
-                st.rerun() # Fecha a dialog e atualiza a interface
-    
+        if st.button("Salvar Contexto"):
+            st.session_state.custom_metadata = new_metadata
+            st.toast("Contexto salvo! A próxima query o utilizará.", icon="🧠")
+            st.rerun()
     with col2:
         if st.button("Cancelar"):
-            st.rerun() # Apenas fecha a dialog
+            st.rerun()
 
-# --- Modal para Salvar Pergunta ---
 @st.dialog("Salvar Pergunta como Métrica")
 def save_question_dialog(question_to_save: str):
     st.write("Dê um nome para esta métrica para encontrá-la facilmente no seu dashboard.")
@@ -104,53 +73,74 @@ def save_question_dialog(question_to_save: str):
             st.rerun()
         else:
             st.error("Por favor, dê um nome para a métrica.")
-
-# --- Função para Renderizar Resultados de Métricas ---
-def render_metric_result(result):
-    """
-    Renderiza o resultado de uma métrica de forma inteligente,
-    adaptando-se ao tipo de dado (texto, número, tabela, gráfico).
-    """
-    if isinstance(result, str):
-        try:
-            # Tenta converter para uma estrutura de dados Python (ex: lista de listas)
-            data = eval(result)
-            if isinstance(data, list) and data:
-                # Se for uma lista de listas/tuplas, é uma tabela
-                if all(isinstance(row, (list, tuple)) for row in data):
-                    df = pd.DataFrame(data)
-                    # Use st.dataframe para tabelas interativas e com bom visual
-                    st.dataframe(df, height=210, use_container_width=True)
-                else:
-                    # Se for uma lista simples, apenas mostra o texto
-                    st.markdown(f"<p style='font-family: sans-serif; font-size: 16px;'>{result}</p>", unsafe_allow_html=True)
-            # Se for um número (convertido de uma string)
-            elif isinstance(data, (int, float)):
-                 st.markdown(f"<p style='text-align: center; font-size: 2.5rem; font-weight: bold; margin: 0;'>{data:,.2f}</p>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<p style='font-family: sans-serif; font-size: 16px;'>{result}</p>", unsafe_allow_html=True)
-
-        except (SyntaxError, NameError):
-            # Se não puder ser convertido (é um texto puro)
-            # Tenta detectar se é um texto de sucesso de gráfico
-            if "gráfico" in result.lower() and "gerado" in result.lower():
-                # O gráfico já foi renderizado pela ferramenta viz_tool.
-                # Apenas mostramos uma confirmação.
-                st.success("Gráfico renderizado acima! ✅")
-            else:
-                 # Para textos longos, usamos um markdown normal
-                 st.markdown(f"<p style='font-family: sans-serif; font-size: 16px;'>{result}</p>", unsafe_allow_html=True)
+            
+# --- Função de Renderização de Resultados ---
+def render_metric_result(result_df: pd.DataFrame):
+    if result_df.empty:
+        st.warning("A consulta não retornou resultados.")
     else:
-        # Para outros tipos de dados não esperados
-        st.write(result)
+        # Se o resultado for um único valor (1 linha, 1 coluna), use st.metric
+        if len(result_df) == 1 and len(result_df.columns) == 1:
+            # Pega o valor e formata se for numérico
+            value = result_df.iloc[0, 0]
+            if isinstance(value, (int, float)):
+                st.metric(label="Resultado", value=f"{value:,.2f}")
+            else:
+                st.metric(label="Resultado", value=str(value))
+        else:
+            st.dataframe(result_df, height=210, use_container_width=True)
 
 # --- Formulário de Conexão na Sidebar ---
 with st.sidebar:
+    
     st.header("🗝️ Chave da API OpenAI")
-    openai_api_key = st.text_input(
-        "Insira sua chave da API da OpenAI aqui:",
-        type="password",
-        help="Sua chave não será armazenada. É necessária para cada sessão."
+
+    # Se uma chave já foi carregada do arquivo, mostra um status
+    if st.session_state.openai_api_key:
+        st.success("Chave da API carregada do servidor.", icon="✅")
+        # Botão para limpar a chave salva no servidor
+        if st.button("Esquecer Chave Salva"):
+            delete_api_key()
+            st.session_state.openai_api_key = ""
+            st.rerun()
+    else:
+        # Campo para inserir uma nova chave
+        new_api_key = st.text_input(
+            "Insira ou atualize sua chave da API:",
+            type="password",
+            placeholder="sk-..."
+        )
+        
+        should_save = st.checkbox("Salvar chave no servidor por 24 horas", value=False)
+
+        if st.button("Aplicar Chave"):
+            if new_api_key:
+                # Aplica a chave à sessão atual
+                st.session_state.openai_api_key = new_api_key
+                
+                # Salva no arquivo JSON se o usuário marcou a caixa
+                if should_save:
+                    save_api_key(new_api_key)
+                    st.toast("Chave salva no servidor por 24h!")
+                else:
+                    # Garante que qualquer chave antiga seja removida se o usuário desmarcar
+                    delete_api_key()
+
+                st.rerun() # Atualiza a UI para refletir o novo estado
+            else:
+                # Se o usuário clicar em "Aplicar" sem digitar nada, mas uma chave já existe,
+                # simplesmente confirma que ela está em uso.
+                if st.session_state.openai_api_key:
+                    st.toast("Chave da API já está em uso para esta sessão.")
+                else:
+                    st.warning("Por favor, insira uma chave para aplicar.")
+
+    st.header("🧠 Modelo de IA")
+    # Salva a seleção do modelo no estado da sessão
+    st.session_state.selected_model = st.selectbox(
+        "Escolha o modelo da OpenAI",
+        options=OPENAI_MODELS,
+        index=OPENAI_MODELS.index(st.session_state.get("selected_model", "gpt-4.1-nano-2025-04-14"))
     )
         
     st.header("⚙️ Conectar ao Banco de Dados")
@@ -231,7 +221,7 @@ with st.sidebar:
             )
 
         if st.button("🔗 Conectar"):
-            if not openai_api_key:
+            if not st.session_state.openai_api_key:
                 st.error("Por favor, insira sua chave da API da OpenAI para continuar.")
             else:
                 uri = None
@@ -255,145 +245,144 @@ with st.sidebar:
                                 database=st.session_state.db_name
                             ).render_as_string(hide_password=False)
                         
-                        st.info("Obtendo schema do banco de dados...")
-                        db = SQLDatabase.from_uri(uri)
-                        table_names = db.get_usable_table_names()        
-                        
-                        st.session_state.openai_api_key = openai_api_key
                         st.session_state.db_uri = uri
-                        st.session_state.custom_metadata = ""
-                        
-                        agent_config = get_agent_executor(uri, st.session_state.openai_api_key, st.session_state.custom_metadata)
-                        
-                        st.session_state.agent_config = agent_config
-                        st.session_state.table_names = table_names
+                        db = SQLDatabase.from_uri(uri)
+                        st.session_state.table_names = db.get_usable_table_names()
                         st.session_state.connection_configured = True
                         st.session_state.messages = [
-                            {"role": "assistant", "content": f"Conectado com sucesso ao banco **{st.session_state.db_type}**! As tabelas `{', '.join(table_names)}` estão disponíveis. Como posso ajudar?"}
+                            {"role": "assistant", "content": f"Conectado com sucesso! As tabelas `{', '.join(st.session_state.table_names)}` foram encontradas. Faça sua primeira pergunta."}
                         ]
                         st.rerun()
-
                 except Exception as e:
                     st.error(f"Falha na conexão: {e}")
                     reset_connection()
 
-# --- Interface Principal do Chat ---
+# --- Lógica Principal com Tabs ---
 if not st.session_state.connection_configured:
     st.info("👈 Por favor, configure e conecte-se a um banco de dados na barra lateral para começar.")
     st.stop()
 
-# Cria as abas  
 tab_chat, tab_dashboard = st.tabs(["💬 Chat", "📊 Dashboard"])
 
 # --- Aba de Chat ---
 with tab_chat:
-    chat_container = st.container(height=500, border=False)
-    
-    with chat_container:
-        for i, message in enumerate(st.session_state.messages):
+    # 1. Cria um container para as mensagens com altura fixa e rolagem interna.
+    # O 'border=False' remove a borda visual.
+    chat_container = st.container(height=510, border=False)
+
+    # 2. Exibe todo o histórico de mensagens DENTRO do container.
+    for i, message in enumerate(st.session_state.messages):
+        with chat_container:
             with st.chat_message(message["role"]):
                 if message["role"] == "user":
                     col1, col2 = st.columns([0.9, 0.1])
                     with col1:
                         st.markdown(message["content"])
                     with col2:
-                        if st.button("🔖", key=f"save_{i}", help="Salvar esta pergunta"):
+                        # Usamos um ID único para a chave para evitar conflitos no rerun
+                        if st.button("🔖", key=f"save_{message['content']}_{i}", help="Salvar esta pergunta"):
                             save_question_dialog(message["content"])
-                else:
-                    st.markdown(message["content"])
-                    if "verbose_log" in message and message["verbose_log"]:
-                        with st.expander("Ver detalhes da execução"):
-                            st.code(message["verbose_log"], language="bash")
-    
-    # Lógica de processamento de prompt do chat
-    if prompt := st.chat_input("Faça sua pergunta..."):
+                else:  # Mensagens do assistente
+                    # Usamos st.get_option("client.showErrorDetails") para verificar se estamos em modo de depuração
+                    if "dataframe" in message and isinstance(message.get("dataframe"), list):
+                        try:
+                            df_to_show = pd.DataFrame(message["dataframe"])
+                            st.dataframe(df_to_show)
+                        except Exception:
+                            st.write(message["dataframe"]) # Fallback
+                    if "content" in message:
+                        st.markdown(message["content"])
+                    if "query_info" in message:
+                        with st.expander("🔍 Ver Query SQL Executada"):
+                            st.code(message["query_info"]["query"], language="sql")
+                            st.caption(message["query_info"]["explanation"])
+
+    # 3. O chat_input fica FORA do container, renderizado no fluxo principal da página.
+    if prompt := st.chat_input("Faça sua pergunta sobre o banco de dados..."):
+        # Adiciona a mensagem do usuário ao estado
         st.session_state.messages.append({"role": "user", "content": prompt})
+
+        # Processa a pergunta e gera a resposta do assistente
+        #with st.chat_message("assistant"): # Renderiza um placeholder temporário para o assistente
+        with st.spinner("🤔 Pensando..."):
+            assistant_response = {}
+            try:
+                # ETAPA 1: Gerar a query SQL
+                history = st.session_state.messages[:-1]
+                sql_result = generate_sql_query(
+                    db_uri=st.session_state.db_uri,
+                    openai_api_key=st.session_state.openai_api_key,
+                    model_name=st.session_state.get("selected_model", "gpt-4.1-nano-2025-04-14"), # Adicionado fallback
+                    question=prompt,
+                    custom_metadata=st.session_state.custom_metadata,
+                    chat_history=history
+                )
+                assistant_response["query_info"] = {"query": sql_result.query, "explanation": sql_result.explanation}
+
+                # ETAPA 2: Executar a query
+                result_df = execute_sql_query(st.session_state.db_uri, sql_result.query)
+                
+                # Salva o dataframe no formato correto para re-renderização
+                assistant_response["dataframe"] = result_df.to_dict("records")
+                assistant_response["content"] = f"Consulta executada com sucesso! {len(result_df)} linha(s) encontrada(s)."
+
+            except Exception as e:
+                error_message = f"Ocorreu um problema: {e}"
+                assistant_response["content"] = error_message
+        
+        # Adiciona a resposta completa do assistente ao estado
+        st.session_state.messages.append({"role": "assistant", **assistant_response})
+        
+        # Um único rerun no final para redesenhar a tela com a nova resposta.
         st.rerun()
 
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        last_message = st.session_state.messages[-1]
-        with chat_container:
-            with st.chat_message("assistant"):
-                with st.spinner("🤔 Pensando..."):
-                    history = st.session_state.messages[:-1]
-                    answer, log = run_agent_with_memory(
-                        agent_config=st.session_state.agent_config,
-                        question=last_message["content"],
-                        chat_history=history
-                    )
-                    st.session_state.messages.append({"role": "assistant", "content": answer, "verbose_log": log})
-                    st.rerun()
-                    
 # --- Aba de Dashboard ---
 with tab_dashboard:
-   
     saved_questions = load_saved_questions()
-
     if not saved_questions:
-        st.info("Você ainda não salvou nenhuma métrica. Volte ao chat e clique no ícone 🔖 para salvar suas perguntas favoritas!")
+        st.info("Você ainda não salvou nenhuma métrica. Volte ao chat e clique no ícone 🔖 para salvar.")
     else:
         if st.button("🔄 Atualizar Tudo"):
-            st.session_state.dashboard_results = {}
-            st.rerun()
-
-        cols = st.columns(3)
-        col_idx = 0
+            st.session_state.dashboard_results = {}; st.rerun()
+        
+        cols = st.columns(3); col_idx = 0
         for metric_name, data in saved_questions.items():
             with cols[col_idx % len(cols)]:
                 with st.container(border=True):
-                    # --- Cabeçalho do Card ---
                     st.subheader(metric_name)
                     st.caption(f"Pergunta: *{data['question']}*")
-                    
-                    # --- Corpo do Card (onde o resultado será renderizado) ---
                     result_placeholder = st.empty()
-
-                    # --- Lógica de Execução ---
-                    # Se o resultado não estiver no cache, executa
-                    if metric_name not in st.session_state.dashboard_results:
-                        with result_placeholder:
-                            with st.spinner("Calculando..."):
-                                # Se a pergunta contiver "gráfico", o resultado será a renderização
-                                # da ferramenta viz_tool, que já usa st.pyplot()
-                                if "gráfico" in data["question"].lower() or "plot" in data["question"].lower():
-                                    answer, _ = run_agent_with_memory(
-                                        agent_config=st.session_state.agent_config,
-                                        question=data["question"],
-                                        chat_history=[]
-                                    )
-                                    st.session_state.dashboard_results[metric_name] = answer
-                                else:
-                                    # Para outras perguntas, pegamos a resposta e renderizamos depois
-                                    answer, _ = run_agent_with_memory(
-                                        agent_config=st.session_state.agent_config,
-                                        question=data["question"],
-                                        chat_history=[]
-                                    )
-                                    st.session_state.dashboard_results[metric_name] = answer
-                                
-                                # Re-renderiza para exibir o resultado final
-                                st.rerun()
                     
-                    # --- Lógica de Exibição ---
+                    if metric_name not in st.session_state.dashboard_results:
+                        with result_placeholder, st.spinner("Executando..."):
+                            try:
+                                sql_result = generate_sql_query(
+                                    db_uri=st.session_state.db_uri, 
+                                    openai_api_key=st.session_state.openai_api_key,
+                                    model_name=st.session_state.selected_model, 
+                                    question=data["question"]
+                                )
+                                result_df = execute_sql_query(st.session_state.db_uri, sql_result.query)
+                                st.session_state.dashboard_results[metric_name] = result_df
+                                st.rerun()
+                            except Exception as e:
+                                st.session_state.dashboard_results[metric_name] = pd.DataFrame([{"erro": str(e)}])
+                    
                     if metric_name in st.session_state.dashboard_results:
-                        with result_placeholder:
-                            # Chama nossa função de renderização inteligente
-                            render_metric_result(st.session_state.dashboard_results[metric_name])
-
-                    # --- Rodapé do Card com Botões de Ação ---
+                        result_df = st.session_state.dashboard_results[metric_name]
+                        if "erro" in result_df.columns:
+                            result_placeholder.error(f"Erro ao calcular: {result_df['erro'][0]}")
+                        else:
+                            with result_placeholder:
+                                render_metric_result(result_df)
+                    
                     st.markdown("---")
                     col_b1, col_b2 = st.columns([0.7, 0.3])
-                    with col_b1:
-                        if st.button("Recalcular", key=f"run_{metric_name}"):
-                            if metric_name in st.session_state.dashboard_results:
-                                del st.session_state.dashboard_results[metric_name]
-                            st.rerun()
-                    with col_b2:
-                        if st.button("🗑️", key=f"del_{metric_name}", help="Deletar métrica"):
-                            delete_question(metric_name)
-                            if metric_name in st.session_state.dashboard_results:
-                                del st.session_state.dashboard_results[metric_name]
-                            st.toast(f"Métrica '{metric_name}' deletada.")
-                            time.sleep(1)
-                            st.rerun()
+                    if col_b1.button("Recalcular", key=f"run_{metric_name}"):
+                        if metric_name in st.session_state.dashboard_results: del st.session_state.dashboard_results[metric_name]
+                        st.rerun()
+                    if col_b2.button("🗑️", key=f"del_{metric_name}", help="Deletar métrica"):
+                        delete_question(metric_name)
+                        if metric_name in st.session_state.dashboard_results: del st.session_state.dashboard_results[metric_name]
+                        st.toast(f"Métrica '{metric_name}' deletada."); time.sleep(1); st.rerun()
             col_idx += 1
