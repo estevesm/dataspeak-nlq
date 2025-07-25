@@ -22,6 +22,9 @@ Você é um especialista em SQL de classe mundial. Sua tarefa é analisar o sche
 3.  Analise o histórico da conversa para entender perguntas de acompanhamento e usar o contexto.
 4.  Retorne a query SQL e uma breve explicação no formato JSON solicitado.
 
+**Dialeto SQL do Banco de Dados Alvo:**
+`{dialect}`
+
 **Schema do Banco de Dados:**
 {schema}
 
@@ -52,6 +55,7 @@ def generate_sql_query(
     llm = get_openai_llm(api_key=openai_api_key, model_name=model_name)
     db = SQLDatabase.from_uri(db_uri)
     
+    dialect = db.dialect # Obtém o dialeto do banco de dados
     schema_info = db.get_table_info()
 
     # Adaptação para o histórico do Streamlit
@@ -77,6 +81,7 @@ def generate_sql_query(
 
     try:
         result = chain.invoke({
+            "dialect": dialect,
             "schema": schema_info,
             "custom_metadata": custom_metadata if custom_metadata else "Nenhum.",
             "chat_history": history_str if history_str else "Nenhum.",

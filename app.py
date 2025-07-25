@@ -6,19 +6,24 @@ from langchain_community.utilities import SQLDatabase
 from pipeline.agent_pipeline import generate_sql_query
 from utils.db_executor import execute_sql_query
 from config import OPENAI_MODELS
-from utils.storage import load_api_key, save_api_key, delete_api_key
-from utils.storage import  load_dashboards, get_dashboard_names, save_metric_to_dashboard, delete_dashboard, delete_metric_from_dashboard
+from utils.storage import  *
+from utils.connection import get_connection_id
 
 # --- Configuração da Página ---
-st.set_page_config(page_title="DataSpeak", page_icon="🤖", layout="wide")
-st.image("assets/logo-living.png", width=200)
-st.markdown("<h1 style='font-size: 32px;'>✨ DataSpeak - Converse com seu banco de dados usando IA</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="DataSpeak", page_icon="✨", layout="wide")
+st.markdown("<h3 style='font-size: 26px; margin-top:-40px;'>✨ DataSpeak - Converse com seu banco de dados usando IA</h1>", unsafe_allow_html=True)
 
 # --- Lógica de Estado da Sessão ---
 def initialize_session_state():
     defaults = {
-        "db_type": "SQLite", "table_names": [], "messages": [], "connection_configured": False,
-        "db_uri": "", "custom_metadata": "", "dashboard_results": {}
+        "db_type": "SQLite", 
+        "table_names": [], 
+        "messages": [], 
+        "connection_id": "",
+        "connection_configured": False,
+        "db_uri": "", 
+        "custom_metadata": "", 
+        "dashboard_results": {}
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -29,9 +34,14 @@ def initialize_session_state():
         st.session_state.openai_api_key = load_api_key()            
 
 def reset_connection():
-    api_key = st.session_state.get("openai_api_key", "")
-    initialize_session_state()
-    st.session_state.openai_api_key = api_key
+    st.session_state.connection_configured = False
+    st.session_state.agent_config = None
+    st.session_state.table_names = []
+    st.session_state.db_uri = ""
+    st.session_state.db_type = "SQLite" # Reseta para o padrão
+    st.session_state.messages = [] # Limpa o histórico de chat da conexão anterior
+    st.session_state.dashboard_results = {} # Limpa os resultados do dashboard
+    st.session_state.custom_metadata = "" # Limpa o contexto
 
 initialize_session_state()
 
@@ -54,6 +64,7 @@ def context_editor_dialog():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Salvar Contexto"):
+            save_custom_metadata(st.session_state.connection_id, new_metadata)
             st.session_state.custom_metadata = new_metadata
             st.toast("Contexto salvo! A próxima query o utilizará.", icon="🧠")
             st.rerun()
@@ -72,7 +83,7 @@ def save_question_dialog(question_to_save: str):
     
     st.write("**2. Escolha o Dashboard**")
     
-    dashboard_names = get_dashboard_names()
+    dashboard_names = get_dashboard_names(st.session_state.connection_id)
     create_new_option = "+ Criar Novo Dashboard"
     
     # Seletor para escolher um dashboard existente ou criar um novo
@@ -93,7 +104,7 @@ def save_question_dialog(question_to_save: str):
         elif not final_dashboard_name:
             st.error("Por favor, escolha ou crie um nome para o dashboard.")
         else:
-            save_metric_to_dashboard(final_dashboard_name, metric_name, question_to_save)
+            save_metric_to_dashboard(st.session_state.connection_id, final_dashboard_name, metric_name, question_to_save)            
             st.toast(f"Métrica '{metric_name}' salva no dashboard '{final_dashboard_name}'!", icon="🔖")
             st.rerun()
             
@@ -116,11 +127,15 @@ def render_metric_result(result_df: pd.DataFrame):
 # --- Formulário de Conexão na Sidebar ---
 with st.sidebar:
     
+    # Aplica estilo CSS ao bloco que contém a imagem
+    st.markdown("""<style>div[data-testid="stImage"] { margin-top: -40px; }</style>""", unsafe_allow_html=True)
+    st.image("assets/logo-living.png", width=200)
+    
     st.header("🗝️ Chave da API OpenAI")
 
     # Se uma chave já foi carregada do arquivo, mostra um status
     if st.session_state.openai_api_key:
-        st.success("Chave da API carregada do servidor.", icon="✅")
+        st.success("Chave da API carregada do servidor.")
         # Botão para limpar a chave salva no servidor
         if st.button("Esquecer Chave Salva"):
             delete_api_key()
@@ -166,7 +181,7 @@ with st.sidebar:
         index=OPENAI_MODELS.index(st.session_state.get("selected_model", "gpt-4.1-nano-2025-04-14"))
     )
         
-    st.header("⚙️ Conectar ao Banco de Dados")
+    st.header("📊 Conectar ao Banco de Dados")
 
     if st.session_state.connection_configured:
         st.success(f"Conectado ao **{st.session_state.db_type}**.")
@@ -177,14 +192,10 @@ with st.sidebar:
             else:
                 st.markdown("Nenhuma tabela encontrada.")
 
-        st.divider()
-        
         st.header("🪄 Contexto de Negócio")
         if st.button("Editar Contexto / Dicionário de Dados"):
             context_editor_dialog()
-            
-        st.divider()
-        
+                    
         if st.button("🔌 Desconectar"):
             reset_connection()
             st.rerun()
@@ -252,7 +263,7 @@ with st.sidebar:
                     with st.spinner("Conectando e inicializando o agente..."):
                         config = DB_CONFIGS[st.session_state.db_type]
                         drivername = config["driver"]
-
+                        
                         if st.session_state.db_type == "SQLite":
                             uri = f"{drivername}:///{st.session_state.db_path}"
                         elif st.session_state.db_type == "SQL Server":
@@ -275,6 +286,17 @@ with st.sidebar:
                         st.session_state.messages = [
                             {"role": "assistant", "content": f"Conectado com sucesso! As tabelas `{', '.join(st.session_state.table_names)}` foram encontradas. Faça sua primeira pergunta."}
                         ]
+                        
+                        connection_id = get_connection_id(
+                            db_type=st.session_state.db_type,
+                            db_host=st.session_state.get('db_host'),
+                            db_port=st.session_state.get('db_port'),
+                            db_name=st.session_state.get('db_name'),
+                            db_path=st.session_state.get('db_path')
+                        )
+                        st.session_state.connection_id = connection_id
+                        st.session_state.custom_metadata = load_custom_metadata(connection_id)
+                        
                         st.rerun()
                 except Exception as e:
                     st.error(f"Falha na conexão: {e}")
@@ -285,13 +307,13 @@ if not st.session_state.connection_configured:
     st.info("👈 Por favor, configure e conecte-se a um banco de dados na barra lateral para começar.")
     st.stop()
 
-tab_chat, tab_dashboard = st.tabs(["💬 Chat", "📊 Dashboard"])
+tab_chat, tab_dashboard = st.tabs(["💬 Chat", "📈 Dashboard"])
 
 # --- Aba de Chat ---
 with tab_chat:
     # 1. Cria um container para as mensagens com altura fixa e rolagem interna.
     # O 'border=False' remove a borda visual.
-    chat_container = st.container(height=510, border=False)
+    chat_container = st.container(height=620, border=False)
 
     # 2. Exibe todo o histórico de mensagens DENTRO do container.
     for i, message in enumerate(st.session_state.messages):
@@ -361,18 +383,25 @@ with tab_chat:
 
 # --- Aba de Dashboard ---            
 with tab_dashboard:
-    # Carrega a estrutura completa de todos os dashboards
-    all_dashboards = load_dashboards()
-    dashboard_names = list(all_dashboards.keys())
+    
+    # Garante que temos um connection_id para trabalhar
+    if not st.session_state.get("connection_id"):
+        st.warning("Aguardando ID da conexão...")
+        st.stop()
+    
+    connection_id = st.session_state.connection_id
+
+    # Carrega apenas os nomes dos dashboards PARA ESTA CONEXÃO >>>
+    dashboard_names = get_dashboard_names(connection_id)
 
     if not dashboard_names:
         st.info("Você ainda não salvou nenhuma métrica. Volte ao chat e clique no ícone 🔖 para criar seu primeiro dashboard!")
         st.stop()
 
-    # 1. Adicionamos um título manual para a seção
+    # Adicionamos um título manual para a seção
     st.markdown("###### Selecione um Dashboard")
 
-    # 2. Injetamos CSS para alinhar verticalmente os itens nas colunas
+    # Injetamos CSS para alinhar verticalmente os itens nas colunas
     st.markdown("""
         <style>
             /* Alvo específico para os contêineres de coluna dentro do app */
@@ -397,23 +426,25 @@ with tab_dashboard:
     with col2:
         if st.button("🔄 Atualizar"):
             if selected_dashboard_name:
-                current_metrics = list(all_dashboards.get(selected_dashboard_name, {}).keys())
-                for metric in current_metrics:
-                    if metric in st.session_state.dashboard_results:
-                        del st.session_state.dashboard_results[metric]
+                metrics_to_clear = load_dashboard_metrics(connection_id, selected_dashboard_name).keys()
+                for metric in metrics_to_clear:
+                    # Usamos uma chave composta para o cache de resultados
+                    cache_key = f"{connection_id}_{selected_dashboard_name}_{metric}"
+                    if cache_key in st.session_state.dashboard_results:
+                        del st.session_state.dashboard_results[cache_key]
                 st.rerun()
             
     with col3:
         if st.button("🗑️ Deletar", type="primary"):
             st.session_state.confirm_delete = True
-            st.rerun() # Adiciona um rerun para mostrar a confirmação imediatamente
+            st.rerun()
 
     # Lógica de confirmação para deleção
     if st.session_state.get("confirm_delete", False):
         st.warning(f"**Você tem certeza que quer deletar o dashboard '{selected_dashboard_name}'?** Esta ação não pode ser desfeita.")
         col_d1, col_d2 = st.columns(2)
         if col_d1.button("Sim, deletar permanentemente"):
-            delete_dashboard(selected_dashboard_name)
+            delete_dashboard(connection_id, selected_dashboard_name)
             st.session_state.confirm_delete = False
             st.toast(f"Dashboard '{selected_dashboard_name}' deletado.")
             time.sleep(1)
@@ -436,11 +467,11 @@ with tab_dashboard:
         unsafe_allow_html=True
     )
     # --- Renderização dos Cards do Dashboard Selecionado ---
-    if selected_dashboard_name and selected_dashboard_name in all_dashboards:
+    if selected_dashboard_name:
         st.subheader(f"Métricas de: {selected_dashboard_name}")
         
         # Obtém as métricas do dashboard selecionado
-        selected_dashboard_metrics = all_dashboards[selected_dashboard_name]
+        selected_dashboard_metrics = load_dashboard_metrics(connection_id, selected_dashboard_name)
         
         if not selected_dashboard_metrics:
             st.info("Este dashboard está vazio. Salve algumas métricas nele a partir da aba de Chat!")
@@ -450,6 +481,7 @@ with tab_dashboard:
         col_idx = 0
         for metric_name, data in selected_dashboard_metrics.items():
             question = data.get("question", "Pergunta não encontrada.")
+            cache_key = f"{connection_id}_{selected_dashboard_name}_{metric_name}"
             with cols[col_idx % len(cols)]:
                 with st.container(border=True):
                     st.subheader(metric_name)
@@ -457,24 +489,24 @@ with tab_dashboard:
                     result_placeholder = st.empty()
                     
                     # Lógica de Execução e Exibição
-                    if metric_name not in st.session_state.dashboard_results:
+                    if cache_key not in st.session_state.dashboard_results:
                         with result_placeholder, st.spinner("Executando..."):
                             try:
                                 sql_result = generate_sql_query(
                                     db_uri=st.session_state.db_uri,
                                     openai_api_key=st.session_state.openai_api_key,
-                                    model_name=st.session_state.get("selected_model", "gpt-4o-mini"),
+                                    model_name=st.session_state.get("selected_model", "gpt-4.1-nano-2025-04-14"),
                                     question=question
                                 )
                                 result_df = execute_sql_query(st.session_state.db_uri, sql_result.query)
-                                st.session_state.dashboard_results[metric_name] = result_df
+                                st.session_state.dashboard_results[cache_key] = result_df
                                 st.rerun()
                             except Exception as e:
-                                st.session_state.dashboard_results[metric_name] = pd.DataFrame([{"erro": str(e)}])
+                                st.session_state.dashboard_results[cache_key] = pd.DataFrame([{"erro": str(e)}])
                                 st.rerun()
                     
-                    if metric_name in st.session_state.dashboard_results:
-                        result_df = st.session_state.dashboard_results[metric_name]
+                    if cache_key in st.session_state.dashboard_results:
+                        result_df = st.session_state.dashboard_results[cache_key]
                         if "erro" in result_df.columns:
                             result_placeholder.error(f"Erro ao calcular: {result_df['erro'][0]}")
                         else:
@@ -484,13 +516,13 @@ with tab_dashboard:
                     st.markdown("---")
                     col_b1, col_b2 = st.columns([0.7, 0.3])
                     if col_b1.button("Recalcular", key=f"run_{metric_name}"):
-                        if metric_name in st.session_state.dashboard_results:
-                            del st.session_state.dashboard_results[metric_name]
+                        if cache_key in st.session_state.dashboard_results:
+                            del st.session_state.dashboard_results[cache_key]
                         st.rerun()
                     if col_b2.button("🗑️", key=f"del_{metric_name}", help="Deletar métrica"):
-                        delete_metric_from_dashboard(selected_dashboard_name, metric_name)
-                        if metric_name in st.session_state.dashboard_results:
-                            del st.session_state.dashboard_results[metric_name]
+                        delete_metric_from_dashboard(connection_id, selected_dashboard_name, metric_name)
+                        if cache_key in st.session_state.dashboard_results:
+                            del st.session_state.dashboard_results[cache_key]
                         st.toast(f"Métrica '{metric_name}' deletada.")
                         time.sleep(1)
                         st.rerun()

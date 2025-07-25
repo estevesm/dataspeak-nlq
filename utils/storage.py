@@ -29,38 +29,52 @@ def _save_storage(data: Dict[str, Any]):
     with open(STORAGE_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-# --- NOVAS Funções para Gerenciamento de Dashboards ---
-def load_dashboards() -> Dict[str, Any]:
-    """Carrega a estrutura completa de dashboards."""
-    return _load_storage().get("dashboards", {})
-
-def get_dashboard_names() -> List[str]:
-    """Retorna uma lista com os nomes de todos os dashboards salvos."""
-    return list(load_dashboards().keys())
-
-def save_metric_to_dashboard(dashboard_name: str, metric_name: str, question: str):
-    """Salva ou atualiza uma métrica dentro de um dashboard específico."""
+# --- Funções de Dashboard Contextualizadas ---
+def get_dashboard_names(connection_id: str) -> List[str]:
+    """Retorna os nomes dos dashboards para uma conexão específica."""
     storage = _load_storage()
-    if "dashboards" not in storage:
-        storage["dashboards"] = {}
-    if dashboard_name not in storage["dashboards"]:
-        storage["dashboards"][dashboard_name] = {}
-    storage["dashboards"][dashboard_name][metric_name] = {"question": question}
+    return list(storage.get("dashboards", {}).get(connection_id, {}).keys())
+
+def load_dashboard_metrics(connection_id: str, dashboard_name: str) -> Dict[str, Any]:
+    """Carrega as métricas de um dashboard específico para uma conexão."""
+    storage = _load_storage()
+    return storage.get("dashboards", {}).get(connection_id, {}).get(dashboard_name, {})
+
+def save_metric_to_dashboard(connection_id: str, dashboard_name: str, metric_name: str, question: str):
+    """Salva uma métrica em um dashboard, dentro de uma conexão específica."""
+    storage = _load_storage()
+    # Garante que a estrutura aninhada exista
+    storage.setdefault("dashboards", {}).setdefault(connection_id, {}).setdefault(dashboard_name, {})
+    storage["dashboards"][connection_id][dashboard_name][metric_name] = {"question": question}
     _save_storage(storage)
 
-def delete_metric_from_dashboard(dashboard_name: str, metric_name: str):
-    """Deleta uma métrica de um dashboard específico."""
+def delete_metric_from_dashboard(connection_id: str, dashboard_name: str, metric_name: str):
+    """Deleta uma métrica de um dashboard, dentro de uma conexão específica."""
     storage = _load_storage()
-    if dashboard_name in storage.get("dashboards", {}) and metric_name in storage["dashboards"][dashboard_name]:
-        del storage["dashboards"][dashboard_name][metric_name]
+    metrics = storage.get("dashboards", {}).get(connection_id, {}).get(dashboard_name, {})
+    if metric_name in metrics:
+        del metrics[metric_name]
         _save_storage(storage)
 
-def delete_dashboard(dashboard_name: str):
-    """Deleta um dashboard inteiro."""
+def delete_dashboard(connection_id: str, dashboard_name: str):
+    """Deleta um dashboard inteiro de uma conexão específica."""
     storage = _load_storage()
-    if dashboard_name in storage.get("dashboards", {}):
-        del storage["dashboards"][dashboard_name]
+    conn_dashboards = storage.get("dashboards", {}).get(connection_id, {})
+    if dashboard_name in conn_dashboards:
+        del conn_dashboards[dashboard_name]
         _save_storage(storage)
+
+# --- Funções de Contexto de Negócio Contextualizadas ---
+def load_custom_metadata(connection_id: str) -> str:
+    """Carrega o contexto de negócio para uma conexão específica."""
+    storage = _load_storage()
+    return storage.get("metadata", {}).get(connection_id, "")
+
+def save_custom_metadata(connection_id: str, metadata: str):
+    """Salva o contexto de negócio para uma conexão específica."""
+    storage = _load_storage()
+    storage.setdefault("metadata", {})[connection_id] = metadata
+    _save_storage(storage)
 
 # --- Funções Seguras para Gerenciamento da Chave da API ---
 def save_api_key(api_key: str):

@@ -1,5 +1,6 @@
 import pandas as pd
 from sqlalchemy import create_engine, text
+from utils.security import is_query_safe
 
 def execute_sql_query(db_uri: str, query: str) -> pd.DataFrame:
     """
@@ -7,8 +8,9 @@ def execute_sql_query(db_uri: str, query: str) -> pd.DataFrame:
     o resultado como um DataFrame do Pandas.
     """
     # Validação de segurança básica (redundante com o prompt, mas essencial)
-    if not query.strip().upper().startswith("SELECT"):
-        raise ValueError("Apenas queries SELECT são permitidas.")
+    if not is_query_safe(query):
+        # Levanta um erro específico que a UI pode capturar e exibir de forma amigável.
+        raise ValueError("Operação não permitida. Apenas queries de consulta que não modificam dados são autorizadas.")
         
     try:
         engine = create_engine(db_uri)

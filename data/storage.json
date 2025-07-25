@@ -4,15 +4,22 @@
         "expires": 1753477510
     },
     "dashboards": {
-        "BAT": {
-            "Clientes": {
-                "question": "oi"
+        "d39f494938b2ff79aa2cc386890111bbb76a7122541aa0d88aa7c63d74733caa": {
+            "BAT": {
+                "Produtos": {
+                    "question": "liste todos os produtos"
+                }
             }
         },
-        "KABA": {
-            "Produto": {
-                "question": "qual o produto mais caro?"
+        "c94da400b95fbda9b15f1a6372f49826a1004d0409381aec66576efc0b71723c": {
+            "Northwind": {
+                "Totais": {
+                    "question": "total de produtos"
+                }
             }
         }
+    },
+    "metadata": {
+        "d39f494938b2ff79aa2cc386890111bbb76a7122541aa0d88aa7c63d74733caa": "- Se o valor da coluna for referente a moeda, mostre o valor formatado para real brasileiro. Inclua R$"
     }
 }
