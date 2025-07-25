@@ -40,12 +40,14 @@ def load_dashboard_metrics(connection_id: str, dashboard_name: str) -> Dict[str,
     storage = _load_storage()
     return storage.get("dashboards", {}).get(connection_id, {}).get(dashboard_name, {})
 
-def save_metric_to_dashboard(connection_id: str, dashboard_name: str, metric_name: str, question: str):
-    """Salva uma métrica em um dashboard, dentro de uma conexão específica."""
+def save_metric_to_dashboard(connection_id: str, dashboard_name: str, metric_name: str, question: str, sql_query: str):
+    """Salva ou atualiza uma métrica, incluindo a query SQL."""
     storage = _load_storage()
-    # Garante que a estrutura aninhada exista
-    storage.setdefault("dashboards", {}).setdefault(connection_id, {}).setdefault(dashboard_name, {})
-    storage["dashboards"][connection_id][dashboard_name][metric_name] = {"question": question}
+    storage.setdefault("dashboards", {}).setdefault(connection_id, {}).setdefault(dashboard_name, {})    
+    storage["dashboards"][connection_id][dashboard_name][metric_name] = {
+        "question": question,
+        "sql_query": sql_query
+    }
     _save_storage(storage)
 
 def delete_metric_from_dashboard(connection_id: str, dashboard_name: str, metric_name: str):

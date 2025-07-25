@@ -9,6 +9,8 @@ SQLAlchemy
 matplotlib
 seaborn
 cryptography
+streamlit-ace
+sql-formatter
 
 # --- NOVOS DRIVERS DE BANCO DE DADOS ---
 psycopg2-binary   # Para PostgreSQL

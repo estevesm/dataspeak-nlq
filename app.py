@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 import streamlit as st
+from streamlit_ace import st_ace
 from sqlalchemy.engine import URL
 from langchain_community.utilities import SQLDatabase
 from pipeline.agent_pipeline import generate_sql_query
@@ -8,6 +9,7 @@ from pipeline.db_executor import execute_sql_query
 from config import OPENAI_MODELS
 from utils.storage import  *
 from utils.connection import get_connection_id
+from sql_formatter.core import format_sql
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="DataSpeak", page_icon="✨", layout="wide")
@@ -67,17 +69,19 @@ def context_editor_dialog():
             save_custom_metadata(st.session_state.connection_id, new_metadata)
             st.session_state.custom_metadata = new_metadata
             st.toast("Contexto salvo! A próxima query o utilizará.", icon="🧠")
+            time.sleep(1)
             st.rerun()
     with col2:
         if st.button("Cancelar"):
             st.rerun()
 
 @st.dialog("Salvar Pergunta como Métrica")
-def save_question_dialog(question_to_save: str):
+def save_question_dialog(question_to_save: str, sql_query: str):
     st.write("Dê um nome para esta métrica e escolha ou crie um dashboard para salvá-la.")
     
     metric_name = st.text_input("**1. Nome da Métrica**", placeholder="Ex: Vendas Mensais")
     st.text_area("Pergunta", value=question_to_save, disabled=True)
+    st.text_area("Query", value=sql_query, disabled=True)
     
     st.divider()
     
@@ -104,9 +108,65 @@ def save_question_dialog(question_to_save: str):
         elif not final_dashboard_name:
             st.error("Por favor, escolha ou crie um nome para o dashboard.")
         else:
-            save_metric_to_dashboard(st.session_state.connection_id, final_dashboard_name, metric_name, question_to_save)            
+            save_metric_to_dashboard(st.session_state.connection_id, final_dashboard_name, metric_name, question_to_save, sql_query)            
             st.toast(f"Métrica '{metric_name}' salva no dashboard '{final_dashboard_name}'!", icon="🔖")
+            time.sleep(1)
             st.rerun()
+            
+# --- Modal de Edição/Duplicação ---
+@st.dialog("Editar/Duplicar Métrica")
+def edit_metric_dialog(dashboard_name: str, metric_name: str, metric_data: dict, is_duplicate: bool = False):
+    
+    btn_text = "Duplicar Métrica" if is_duplicate else "Editar Métrica"
+
+    if is_duplicate:
+        st.info("Você está duplicando esta métrica. Dê um novo nome a ela.")
+        new_metric_name = st.text_input("Novo Nome da Métrica", value=f"{metric_name} (Cópia)")
+    else:
+        st.info(f"Editando a métrica '{metric_name}'.")
+        new_metric_name = st.text_input("Nome da Métrica", value=metric_name)
+
+    new_question = st.text_input("Pergunta em Linguagem Natural", value=metric_data.get("question", ""))
+
+    st.write("Query SQL (editável):")
+
+    # 1. Pega a query SQL original (potencialmente mal formatada)
+    original_sql = metric_data.get("sql_query", "")
+    
+    # 2. Formata a query usando a biblioteca
+    try:
+        formatted_sql = format_sql(original_sql)
+    except Exception:
+        # Se a formatação falhar (ex: SQL inválido), usa o original
+        formatted_sql = original_sql    
+    
+    new_sql_query = st_ace(
+        value=formatted_sql,
+        language="sql",         # Habilita o realce de sintaxe para SQL
+        theme="crimson_editor", # Um tema popular (outros: 'github', 'chrome')
+        height=250,             # Altura do editor
+        keybinding="vscode",    # Atalhos de teclado familiares (opcional)
+        auto_update=True,       # Atualiza o valor em tempo real (opcional)        
+    )
+
+    if st.button(btn_text):
+        connection_id = st.session_state.connection_id
+        
+        # Se for uma edição e o nome mudou, deleta a antiga
+        if not is_duplicate and new_metric_name != metric_name:
+            delete_metric_from_dashboard(connection_id, dashboard_name, metric_name)
+            
+        # Salva a nova/editada métrica
+        save_metric_to_dashboard(connection_id, dashboard_name, new_metric_name, new_question, new_sql_query)
+        
+        # Limpa o cache para forçar o recálculo
+        cache_key = f"{connection_id}_{dashboard_name}_{new_metric_name}"
+        if cache_key in st.session_state.dashboard_results:
+            del st.session_state.dashboard_results[cache_key]
+            
+        st.toast("Métrica salva com sucesso!", icon="✅")
+        time.sleep(1)
+        st.rerun()            
             
 # --- Função de Renderização de Resultados ---
 def render_metric_result(result_df: pd.DataFrame):
@@ -160,6 +220,7 @@ with st.sidebar:
                 if should_save:
                     save_api_key(new_api_key)
                     st.toast("Chave salva no servidor por 24h!")
+                    time.sleep(1)
                 else:
                     # Garante que qualquer chave antiga seja removida se o usuário desmarcar
                     delete_api_key()
@@ -170,6 +231,7 @@ with st.sidebar:
                 # simplesmente confirma que ela está em uso.
                 if st.session_state.openai_api_key:
                     st.toast("Chave da API já está em uso para esta sessão.")
+                    time.sleep(1)
                 else:
                     st.warning("Por favor, insira uma chave para aplicar.")
 
@@ -312,7 +374,6 @@ tab_chat, tab_dashboard = st.tabs(["💬 Chat", "📈 Dashboard"])
 # --- Aba de Chat ---
 with tab_chat:
     # 1. Cria um container para as mensagens com altura fixa e rolagem interna.
-    # O 'border=False' remove a borda visual.
     chat_container = st.container(height=620, border=False)
 
     # 2. Exibe todo o histórico de mensagens DENTRO do container.
@@ -324,11 +385,15 @@ with tab_chat:
                     with col1:
                         st.markdown(message["content"])
                     with col2:
-                        # Usamos um ID único para a chave para evitar conflitos no rerun
-                        if st.button("🔖", key=f"save_{message['content']}_{i}", help="Salvar esta pergunta"):
-                            save_question_dialog(message["content"])
+                        if (i + 1 < len(st.session_state.messages) and 
+                            st.session_state.messages[i+1]["role"] == "assistant" and
+                            "query_info" in st.session_state.messages[i+1]):
+                            
+                            if st.button("🔖", key=f"save_{i}", help="Salvar esta análise"):
+                                # Pega a query da PRÓXIMA mensagem
+                                sql_query = st.session_state.messages[i+1]["query_info"]["query"]
+                                save_question_dialog(message["content"], sql_query)                                
                 else:  # Mensagens do assistente
-                    # Usamos st.get_option("client.showErrorDetails") para verificar se estamos em modo de depuração
                     if "dataframe" in message and isinstance(message.get("dataframe"), list):
                         try:
                             df_to_show = pd.DataFrame(message["dataframe"])
@@ -348,7 +413,6 @@ with tab_chat:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         # Processa a pergunta e gera a resposta do assistente
-        #with st.chat_message("assistant"): # Renderiza um placeholder temporário para o assistente
         with st.spinner("🤔 Pensando..."):
             assistant_response = {}
             try:
@@ -481,10 +545,22 @@ with tab_dashboard:
         col_idx = 0
         for metric_name, data in selected_dashboard_metrics.items():
             question = data.get("question", "Pergunta não encontrada.")
+            saved_query = data.get("sql_query")            
             cache_key = f"{connection_id}_{selected_dashboard_name}_{metric_name}"
+            
             with cols[col_idx % len(cols)]:
                 with st.container(border=True):
-                    st.subheader(metric_name)
+                    # --- Cabeçalho com Ícones de Ação ---
+                    col_h1, col_h2, col_h3 = st.columns([0.7, 0.15, 0.15])
+                    with col_h1:
+                        st.subheader(metric_name)
+                    with col_h2:
+                        if st.button("✏️", key=f"edit_{metric_name}", help="Editar Métrica"):
+                            edit_metric_dialog(selected_dashboard_name, metric_name, data)
+                    with col_h3:
+                        if st.button("📋", key=f"dup_{metric_name}", help="Duplicar Métrica"):
+                            edit_metric_dialog(selected_dashboard_name, metric_name, data, is_duplicate=True)
+
                     st.caption(f"Pergunta: *{question}*")
                     result_placeholder = st.empty()
                     
@@ -492,13 +568,19 @@ with tab_dashboard:
                     if cache_key not in st.session_state.dashboard_results:
                         with result_placeholder, st.spinner("Executando..."):
                             try:
-                                sql_result = generate_sql_query(
-                                    db_uri=st.session_state.db_uri,
-                                    openai_api_key=st.session_state.openai_api_key,
-                                    model_name=st.session_state.get("selected_model", "gpt-4.1-nano-2025-04-14"),
-                                    question=question
-                                )
-                                result_df = execute_sql_query(st.session_state.db_uri, sql_result.query)
+                                if saved_query:
+                                    # Prioridade 1: Executa a query salva diretamente
+                                    result_df = execute_sql_query(st.session_state.db_uri, saved_query)                                                                
+                                else:
+                                    # Fallback (compatibilidade): Gera a query a partir da pergunta                                
+                                    sql_result = generate_sql_query(
+                                        db_uri=st.session_state.db_uri,
+                                        openai_api_key=st.session_state.openai_api_key,
+                                        model_name=st.session_state.get("selected_model", "gpt-4.1-nano-2025-04-14"),
+                                        question=question
+                                    )
+                                    result_df = execute_sql_query(st.session_state.db_uri, sql_result.query)
+                                    
                                 st.session_state.dashboard_results[cache_key] = result_df
                                 st.rerun()
                             except Exception as e:
