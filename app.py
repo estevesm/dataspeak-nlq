@@ -4,7 +4,7 @@ import streamlit as st
 from sqlalchemy.engine import URL
 from langchain_community.utilities import SQLDatabase
 from pipeline.agent_pipeline import generate_sql_query
-from utils.db_executor import execute_sql_query
+from pipeline.db_executor import execute_sql_query
 from config import OPENAI_MODELS
 from utils.storage import  *
 from utils.connection import get_connection_id

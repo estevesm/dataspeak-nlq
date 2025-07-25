@@ -2,24 +2,5 @@
     "api_key_storage": {
         "encrypted_key": "gAAAAABogqAG-FapgnXpLH-8balCSpW1tPOL99pvNW1ay3-IbBpAtykeM8LEuyGqSBKp6OopTHCLQDqGDlZehL2IwYzjh7E-gQ9OGEYiSt1c9Qmp4rS_uV7lBadPX7ER1SzVVTtWlCLpAfYUau-G3hVfwpOoE49RzYf6gxJfhaThc2yVob0EXuc-PHO1PVybsihd2o2_fsghDxBkRJK7JnipX2HkTNywpGQxuGr7DCSCA9vrbwIhoOqjI1fzDqwpRn5G5tIYRay4PT5zdedom5wWgMMxs6BudMWyFixleyoc6v1wkAm3_Ac=",
         "expires": 1753477510
-    },
-    "dashboards": {
-        "d39f494938b2ff79aa2cc386890111bbb76a7122541aa0d88aa7c63d74733caa": {
-            "BAT": {
-                "Produtos": {
-                    "question": "liste todos os produtos"
-                }
-            }
-        },
-        "c94da400b95fbda9b15f1a6372f49826a1004d0409381aec66576efc0b71723c": {
-            "Northwind": {
-                "Totais": {
-                    "question": "total de produtos"
-                }
-            }
-        }
-    },
-    "metadata": {
-        "d39f494938b2ff79aa2cc386890111bbb76a7122541aa0d88aa7c63d74733caa": "- Se o valor da coluna for referente a moeda, mostre o valor formatado para real brasileiro. Inclua R$"
     }
 }
